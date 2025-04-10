@@ -136,14 +136,7 @@ jobs:
 
         echo "::endgroup::"
     
-    # 📤 UPLOAD PLAN AS ARTIFACT
-    - name: 📤 Upload Terraform Plan
-      uses: actions/upload-artifact@v3.1.0
-      if: steps.plan.outputs.plan_status == 'success' || steps.plan.outputs.plan_status == 'failure'
-      with:
-        name: terraform-plan
-        path: infrastructure/plans/
-        retention-days: 5
+  
 
   # This new job will trigger the apply workflow after a successful plan
   trigger-apply:
