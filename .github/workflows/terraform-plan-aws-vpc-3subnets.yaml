@@ -138,7 +138,7 @@ jobs:
     
     # 📤 UPLOAD PLAN AS ARTIFACT
     - name: 📤 Upload Terraform Plan
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v3.1.0
       if: steps.plan.outputs.plan_status == 'success'
       with:
         name: terraform-plan
