@@ -43,10 +43,10 @@
 #         cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
 name: AWS-terraform-1-vpc-3-subnet 
-#on:
-#  push:
-#    branches:
-#      - 
+on:
+  push:
+    branches:
+      - master 
 permissions:
       id-token: write # This is required for aws oidc connection
       contents: read # This is required for actions/checkout
