@@ -1,7 +1,7 @@
-name: AWS-terraform-apply
+name: Terraform-Apply-AWS-VPC-3-Subnets
 on:
   workflow_run:
-    workflows: ["AWS-terraform-1-vpc-3-subnet"]  # Exactly match the name of Workflow A
+    workflows: ["Terraform-plan-aws-vpc-3subnets"]  # Exactly match the name of Workflow A
     types:
       - completed
 

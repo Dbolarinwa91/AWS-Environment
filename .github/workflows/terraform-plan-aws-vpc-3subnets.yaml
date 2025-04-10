@@ -1,4 +1,4 @@
-name: AWS-terraform-1-vpc-3-subnet
+name: Terraform-plan-aws-vpc-3subnets
 on:
   push:
     branches:
