@@ -1,11 +1,12 @@
 name: Terraform-Apply-AWS-VPC-3-Subnets
 on:
   workflow_run:
-    workflows: ["Terraform-plan-aws-vpc-3subnets"]  # Must match EXACTLY the name in the other workflow file
+    workflows: ["Terraform-plan-aws-vpc-3subnets"]
     types:
       - completed
     branches:
-      - main  # Explicitly defining which branch to monitor
+      - main
+  workflow_dispatch: {} # Added to enable manual triggering
 
 permissions:
   id-token: write  # Required for AWS OIDC connection
@@ -22,29 +23,34 @@ jobs:
     name: 'Verify Trigger Status'
     runs-on: ubuntu-latest
     outputs:
-      trigger_status: ${{ github.event.workflow_run.conclusion }}
-      trigger_branch: ${{ github.event.workflow_run.head_branch }}
+      trigger_status: ${{ github.event.workflow_run.conclusion || 'success' }}
+      trigger_branch: ${{ github.event.workflow_run.head_branch || github.ref_name }}
     steps:
       - name: Print Trigger Details
         run: |
-          echo "Triggered by workflow: ${{ github.event.workflow_run.name }}"
-          echo "Workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
-          echo "Workflow head branch: ${{ github.event.workflow_run.head_branch }}"
-          echo "Workflow ID: ${{ github.event.workflow_run.id }}"
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "Triggered by workflow: ${{ github.event.workflow_run.name }}"
+            echo "Workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
+            echo "Workflow head branch: ${{ github.event.workflow_run.head_branch }}"
+            echo "Workflow ID: ${{ github.event.workflow_run.id }}"
+          else
+            echo "Triggered manually via workflow_dispatch"
+            echo "Current branch: ${{ github.ref_name }}"
+          fi
 
-  # 2. Main terraform apply job - Only run if the triggering workflow completed successfully
+  # 2. Main terraform apply job - Only run if the triggering workflow completed successfully or it was manually triggered
   terraform-apply:
     name: 'Terraform Apply'
     runs-on: ubuntu-latest
     needs: verify-trigger
-    if: needs.verify-trigger.outputs.trigger_status == 'success'
+    if: needs.verify-trigger.outputs.trigger_status == 'success' || github.event_name == 'workflow_dispatch'
     steps:
       # 🔍 PREPARATION PHASE - Repository checkout and environment setup
       - name: 🔍 Checkout repository
         uses: actions/checkout@v4
         id: checkout
         with:
-          ref: ${{ needs.verify-trigger.outputs.trigger_branch || 'main' }}  # Fallback to main if head_branch is empty
+          ref: ${{ needs.verify-trigger.outputs.trigger_branch || github.ref }}
       
       - name: 🔧 Setup Terraform
         uses: hashicorp/setup-terraform@v2
