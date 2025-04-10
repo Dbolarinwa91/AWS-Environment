@@ -120,11 +120,7 @@ jobs:
           echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_summary.md
           echo "" >> ./plans/plan_summary.md
           
-          # Add S3 bucket specific information
-          echo "### S3 Bucket Details" >> ./plans/plan_summary.md
-          echo "\`\`\`" >> ./plans/plan_summary.md
-          grep -A 20 "aws_s3_bucket" ./plans/plan_output.txt >> ./plans/plan_summary.md || echo "No S3 bucket found in plan" >> ./plans/plan_summary.md
-          echo "\`\`\`" >> ./plans/plan_summary.md
+         
           
           cat ./plans/plan_summary.md
         else
@@ -139,7 +135,7 @@ jobs:
       uses: actions/github-script@v6
       if: github.event_name == 'pull_request' && steps.plan.outputs.plan_status == 'success'
       with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        github-token: ${{ secrets.REPO_TOKEN }}
         script: |
           const fs = require('fs');
           const planSummary = fs.readFileSync('./infrastructure/plans/plan_summary.md', 'utf8');
