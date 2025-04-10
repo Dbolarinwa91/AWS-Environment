@@ -1,9 +1,11 @@
 name: Terraform-Apply-AWS-VPC-3-Subnets
 on:
   workflow_run:
-    workflows: ["Terraform-plan-aws-vpc-3subnets"]  # Exactly match the name of Workflow A
+    workflows: ["Terraform-plan-aws-vpc-3subnets"]  # Must match EXACTLY the name in the other workflow file
     types:
       - completed
+    branches:
+      - main  # Explicitly defining which branch to monitor
 
 permissions:
   id-token: write  # Required for AWS OIDC connection
@@ -15,39 +17,51 @@ env:
   TERRAFORM_VERSION: 1.11.0
 
 jobs:
+  debug-trigger:
+    name: 'Debug Workflow Trigger'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print Trigger Details
+        run: |
+          echo "Triggered by workflow: ${{ github.event.workflow_run.name }}"
+          echo "Workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "Workflow head branch: ${{ github.event.workflow_run.head_branch }}"
+          echo "Workflow ID: ${{ github.event.workflow_run.id }}"
+  
   terraform-apply:
     name: 'Terraform Apply'
     runs-on: ubuntu-latest
+    needs: debug-trigger
     # Only run if the triggering workflow completed successfully
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    
+   
     steps:
     # 🔍 PREPARATION PHASE
     - name: 🔍 Checkout repository
       uses: actions/checkout@v4
       with:
-        ref: ${{ github.event.workflow_run.head_branch }}  # Use the same branch as the triggering workflow
-    
+        ref: ${{ github.event.workflow_run.head_branch || 'main' }}  # Fallback to main if head_branch is empty
+   
     - name: 🔧 Setup Terraform
       uses: hashicorp/setup-terraform@v2
       with:
         terraform_version: ${{ env.TERRAFORM_VERSION }}
         cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-
+        
     - name: 🔐 Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ secrets.AWS_ROLE }}
         aws-region: ${{ secrets.AWS_REGION }}
         role-session-name: GitHubActions-Apply
-    
+   
     # 🚀 INITIALIZATION PHASE
     - name: 🚀 Initialize Terraform
       working-directory: infrastructure
       run: |
         echo "::group::Terraform Initialization"
         echo "🔄 Starting Terraform initialization..."
-        
+       
         if terraform init; then
           echo "✅ Terraform initialization successful"
         else
@@ -55,14 +69,15 @@ jobs:
           exit 1
         fi
         echo "::endgroup::"
-    
+   
     # 🔄 APPLY PHASE - Auto-approve the apply to implement the planned changes
     - name: 🔄 Apply Terraform Changes
+      id: apply
       working-directory: infrastructure
       run: |
         echo "::group::Terraform Apply"
         echo "🔄 Applying Terraform changes with auto-approval..."
-        
+       
         if terraform apply -auto-approve; then
           echo "✅ Terraform apply successful"
           echo "apply_status=success" >> $GITHUB_OUTPUT
@@ -72,22 +87,22 @@ jobs:
           exit 1
         fi
         echo "::endgroup::"
-    
+   
     # 📢 NOTIFICATION PHASE - Notify about the successful application of changes
     - name: 📢 Notify on Success
-      if: success()
+      if: steps.apply.outputs.apply_status == 'success'
       run: |
         echo "::group::Notification"
         echo "✅ Infrastructure changes have been successfully applied!"
-        
+       
         # Get output summary for notification
         echo "## 🚀 Infrastructure Successfully Deployed"
         echo "The Terraform infrastructure has been successfully applied."
         echo "Deployment completed at: $(date)"
         echo "::endgroup::"
-
+        
     - name: 📢 Notify on Failure
-      if: failure()
+      if: steps.apply.outputs.apply_status == 'failure'
       run: |
         echo "::group::Notification"
         echo "❌ Infrastructure deployment failed!"

@@ -3,12 +3,17 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:  # Allow manual triggering
 
 permissions:
   id-token: write # Required for AWS OIDC connection
   contents: read # Required for actions/checkout
   pull-requests: write # Required for GitHub bot to comment on PR
   issues: write # Required for posting plan results as issue comments
+  actions: write # Required for triggering other workflows
 
 env:
   TF_LOG: INFO
@@ -17,12 +22,11 @@ env:
 
 jobs:
   terraform:
-    name: 'AWS-terraform-1-vpc-3-subnet'
+    name: 'Terraform Plan'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-        working-directory: .
+    outputs:
+      plan_status: ${{ steps.plan.outputs.plan_status }}
+      plan_exitcode: ${{ steps.plan.outputs.plan_exitcode }}
     
     steps:
     # 🔍 PREPARATION PHASE - Repository checkout and environment setup
@@ -89,7 +93,7 @@ jobs:
       working-directory: infrastructure
       if: steps.validate.outputs.validate_status == 'success'
       run: |
-       echo "::group::Terraform Plan Generation"
+        echo "::group::Terraform Plan Generation"
         echo "🔄 Generating Terraform plan..."
 
         # Create plan directory
@@ -131,6 +135,57 @@ jobs:
         echo "::endgroup::"
 
         echo "::endgroup::"
+    
+    # 📤 UPLOAD PLAN AS ARTIFACT
+    - name: 📤 Upload Terraform Plan
+      uses: actions/upload-artifact@v3
+      if: steps.plan.outputs.plan_status == 'success'
+      with:
+        name: terraform-plan
+        path: infrastructure/plans/
+        retention-days: 5
 
-  
-  
+  # This new job will trigger the apply workflow after a successful plan
+  trigger-apply:
+    name: 'Trigger Apply Workflow'
+    needs: terraform
+    runs-on: ubuntu-latest
+    # Only run if the terraform job succeeded
+    if: ${{ needs.terraform.outputs.plan_status == 'success' && github.event_name != 'pull_request' }}
+    steps:
+      - name: 🚀 Trigger Apply Workflow
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}  # Or use PAT_TOKEN if you need more permissions
+          script: |
+            console.log('Triggering Terraform Apply workflow...');
+            
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'Terraform-Apply-AWS-VPC-3-Subnets.yml',
+                ref: 'main'
+              });
+              
+              console.log('✅ Successfully triggered the apply workflow');
+            } catch (error) {
+              console.error('❌ Failed to trigger apply workflow:', error);
+              core.setFailed(`Failed to trigger apply workflow: ${error.message}`);
+            }
+      
+      - name: 📢 Notify Trigger Success
+        if: success()
+        run: |
+          echo "::group::Apply Workflow Triggered"
+          echo "✅ Successfully triggered the Terraform Apply workflow"
+          echo "The apply workflow 'Terraform-Apply-AWS-VPC-3-Subnets' has been started"
+          echo "::endgroup::"
+      
+      - name: 📢 Notify Trigger Failure
+        if: failure()
+        run: |
+          echo "::group::Apply Workflow Trigger Failed"
+          echo "❌ Failed to trigger the Terraform Apply workflow"
+          echo "Please check permissions and workflow configurations"
+          echo "::endgroup::"
