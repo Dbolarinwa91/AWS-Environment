@@ -1,103 +1,194 @@
-# This workflow installs the latest version of Terraform CLI and configures the Terraform CLI configuration file
-# with an API token for Terraform Cloud (app.terraform.io). On pull request events, this workflow will run
-# `terraform init`, `terraform fmt`, and `terraform plan` (speculative plan via Terraform Cloud). On push events
-# to the "master" branch, `terraform apply` will be executed.
-#
-# Documentation for `hashicorp/setup-terraform` is located here: https://github.com/hashicorp/setup-terraform
-#
-# To use this workflow, you will need to complete the following setup steps.
-#
-# 1. Create a `main.tf` file in the root of this repository with the `remote` backend and one or more resources defined.
-#   Example `main.tf`:
-#     # The configuration for the `remote` backend.
-#     terraform {
-#       backend "remote" {
-#         # The name of your Terraform Cloud organization.
-#         organization = "example-organization"
-#
-#         # The name of the Terraform Cloud workspace to store Terraform state files in.
-#         workspaces {
-#           name = "example-workspace"
-#         }
-#       }
-#     }
-#
-#     # An example resource that does nothing.
-#     resource "null_resource" "example" {
-#       triggers = {
-#         value = "A example resource that does nothing!"
-#       }
-#     }
-#
-#
-# 2. Generate a Terraform Cloud user API token and store it as a GitHub secret (e.g. TF_API_TOKEN) on this repository.
-#   Documentation:
-#     - https://www.terraform.io/docs/cloud/users-teams-organizations/api-tokens.html
-#     - https://help.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets
-#
-# 3. Reference the GitHub secret in step using the `hashicorp/setup-terraform` GitHub Action.
-#   Example:
-#     - name: Setup Terraform
-#       uses: hashicorp/setup-terraform@v1
-#       with:
-#         cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-
-name: AWS-terraform-1-vpc-3-subnet 
+name: AWS-terraform-1-vpc-3-subnet
 on:
   push:
     branches:
-      - master 
+      - master
+  pull_request:
+    branches:
+      - master
+
 permissions:
-      id-token: write # This is required for aws oidc connection
-      contents: read # This is required for actions/checkout
-      pull-requests: write # This is required for gh bot to comment PR
+  id-token: write # Required for AWS OIDC connection
+  contents: read # Required for actions/checkout
+  pull-requests: write # Required for GitHub bot to comment on PR
+  issues: write # Required for posting plan results as issue comments
+
 env:
   TF_LOG: INFO
-  AWS_REGION: ${{ secrets.AWS_REGION }}    
-
-
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  TERRAFORM_VERSION: 1.11.0
 
 jobs:
- terraform:
-    name: 'Terraform'
+  terraform:
+    name: 'Terraform Deployment'
     runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
         working-directory: .
-    # Use the Bash shell regardless whether the GitHub Actions runner is ubuntu-latest, macos-latest, or windows-latest
-
-    steps:
-    # Checkout the repository to the GitHub Actions runner
-    - name: checkout 
-      uses: actions/checkout@v4
     
-    - name: Setup Terraform
+    steps:
+    # 🔍 PREPARATION PHASE - Repository checkout and environment setup
+    - name: 🔍 Checkout repository
+      uses: actions/checkout@v4
+      id: checkout
+    
+    - name: 🔧 Setup Terraform
       uses: hashicorp/setup-terraform@v2
+      id: setup
       with:
-          terraform_version: 1.11.0
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
+        cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
-    - name: Configure AWS credentials from AWS account
+    - name: 🔐 Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
+      id: aws-credentials
       with:
-          role-to-assume: ${{ secrets.AWS_ROLE }}
-          aws-region: ${{ secrets.AWS_REGION }}
-          role-session-name: GitHubActions
-
-    - name: Verifying and Applying Infrastructure Directory
+        role-to-assume: ${{ secrets.AWS_ROLE }}
+        aws-region: ${{ secrets.AWS_REGION }}
+        role-session-name: GitHubActions
+    
+    # 🚀 INITIALIZATION PHASE - Initialize and validate Terraform
+    - name: 🚀 Initialize Terraform
+      id: init
       working-directory: infrastructure
       run: |
-          terraform --version # Print the current version of Terraform
-          pwd # Print the current working directory
-          ls -la
-          terraform init -migrate-state
-          terraform validate 
-          terraform plan
-          terraform refresh
-          terraform apply -auto-approve
-      # On push to "master", build or change infrastructure according to Terraform configuration files
-      # Note: It is recommended to set up a required "strict" status check in your repository for "Terraform Cloud". See the documentation on "strict" required status checks for more information: https://help.github.com/en/github/administering-a-repository/types-of-required-status-checks
-#    - name: Terraform Apply
-#      if: github.ref == 'refs/heads/"master"' && github.event_name == 'push'
-#      run: terraform apply -auto-approve -input=false
+        echo "::group::Terraform Initialization"
+        echo "🔄 Starting Terraform initialization..."
+        
+        # Initialize with state migration enabled
+        if terraform init -migrate-state; then
+          echo "✅ Terraform initialization successful"
+          echo "init_status=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Terraform initialization failed"
+          echo "init_status=failure" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        echo "::endgroup::"
 
+    - name: 🔍 Validate Terraform Configuration
+      id: validate
+      working-directory: infrastructure
+      if: steps.init.outputs.init_status == 'success'
+      run: |
+        echo "::group::Terraform Validation"
+        echo "🔄 Validating Terraform configuration..."
+        
+        # Validate Terraform configuration
+        if terraform validate; then
+          echo "✅ Terraform validation successful"
+          echo "validate_status=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Terraform validation failed"
+          echo "validate_status=failure" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        echo "::endgroup::"
+    
+    # 📝 PLANNING PHASE - Generate and display plan
+    - name: 📝 Create Terraform Plan
+      id: plan
+      working-directory: infrastructure
+      if: steps.validate.outputs.validate_status == 'success'
+      run: |
+        echo "::group::Terraform Plan Generation"
+        echo "🔄 Generating Terraform plan..."
+        
+        # Create plan file
+        mkdir -p ./plans
+        
+        # Run plan and capture output
+        if terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false > ./plans/plan_output.txt 2>&1; then
+          PLAN_EXIT_CODE=$?
+          echo "✅ Terraform plan generated successfully"
+          echo "plan_status=success" >> $GITHUB_OUTPUT
+          echo "plan_exitcode=${PLAN_EXIT_CODE}" >> $GITHUB_OUTPUT
+          
+          # Convert binary plan to JSON for easier parsing
+          terraform show -json ./plans/tfplan.binary > ./plans/tfplan.json
+          
+          # Create human-readable summary
+          echo "## Terraform Plan Summary" > ./plans/plan_summary.md
+          echo "📅 Generated on: $(date)" >> ./plans/plan_summary.md
+          echo "" >> ./plans/plan_summary.md
+          
+          # Count resources being added/changed/destroyed
+          RESOURCES_ADD=$(grep -c "will be created" ./plans/plan_output.txt || echo "0")
+          RESOURCES_CHANGE=$(grep -c "will be updated in-place" ./plans/plan_output.txt || echo "0")
+          RESOURCES_DESTROY=$(grep -c "will be destroyed" ./plans/plan_output.txt || echo "0")
+          
+          echo "🟢 Resources to add: ${RESOURCES_ADD}" >> ./plans/plan_summary.md
+          echo "🟠 Resources to change: ${RESOURCES_CHANGE}" >> ./plans/plan_summary.md
+          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_summary.md
+          echo "" >> ./plans/plan_summary.md
+          
+          # Add S3 bucket specific information
+          echo "### S3 Bucket Details" >> ./plans/plan_summary.md
+          echo "\`\`\`" >> ./plans/plan_summary.md
+          grep -A 20 "aws_s3_bucket" ./plans/plan_output.txt >> ./plans/plan_summary.md || echo "No S3 bucket found in plan" >> ./plans/plan_summary.md
+          echo "\`\`\`" >> ./plans/plan_summary.md
+          
+          cat ./plans/plan_summary.md
+        else
+          echo "❌ Terraform plan generation failed"
+          echo "plan_status=failure" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        echo "::endgroup::"
+
+    # 📊 REPORTING PHASE - Share plan results
+    - name: 📊 Post Plan Summary to PR
+      uses: actions/github-script@v6
+      if: github.event_name == 'pull_request' && steps.plan.outputs.plan_status == 'success'
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const fs = require('fs');
+          const planSummary = fs.readFileSync('./infrastructure/plans/plan_summary.md', 'utf8');
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: planSummary
+          });
+
+    - name: 📨 Upload Plan to Artifact Storage
+      uses: actions/upload-artifact@v3
+      if: steps.plan.outputs.plan_status == 'success'
+      with:
+        name: terraform-plan
+        path: |
+          infrastructure/plans/
+        retention-days: 14
+        
+    - name: 📤 Upload Plan Output to S3 Bucket
+      id: s3-upload
+      if: steps.plan.outputs.plan_status == 'success'
+      run: |
+        echo "::group::S3 Plan Upload"
+        echo "🔄 Uploading Terraform plan to S3 bucket..."
+        
+        # Create a timestamp for unique folder naming
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        
+        # Create a tar.gz archive of all plan files
+        cd infrastructure
+        tar -czf terraform-plan-${TIMESTAMP}.tar.gz ./plans/
+        
+        # Upload to S3
+        if aws s3 cp terraform-plan-${TIMESTAMP}.tar.gz s3://devops-statefile-david-site-project-1234567/plan\ output/terraform-plan-${TIMESTAMP}.tar.gz; then
+          echo "✅ Successfully uploaded plan to S3 bucket"
+          echo "s3_upload_status=success" >> $GITHUB_OUTPUT
+          echo "s3_path=s3://devops-statefile-david-site-project-1234567/plan output/terraform-plan-${TIMESTAMP}.tar.gz" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Failed to upload plan to S3 bucket"
+          echo "s3_upload_status=failed" >> $GITHUB_OUTPUT
+          # Continue workflow even if S3 upload fails
+        fi
+        echo "::endgroup::"
+
+   
+    
+  
