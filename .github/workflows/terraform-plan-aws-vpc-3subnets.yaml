@@ -139,7 +139,7 @@ jobs:
     # 📤 UPLOAD PLAN AS ARTIFACT
     - name: 📤 Upload Terraform Plan
       uses: actions/upload-artifact@v3.1.0
-      if: steps.plan.outputs.plan_status == 'success'
+      if: steps.plan.outputs.plan_status == 'success' || steps.plan.outputs.plan_status == 'failure'
       with:
         name: terraform-plan
         path: infrastructure/plans/
@@ -151,7 +151,7 @@ jobs:
     needs: terraform
     runs-on: ubuntu-latest
     # Only run if the terraform job succeeded
-    if: ${{ needs.terraform.outputs.plan_status == 'success' && github.event_name != 'pull_request' }}
+    if: ${{ needs.terraform.outputs.plan_status == 'success' }}
     steps:
       - name: 🚀 Trigger Apply Workflow
         uses: actions/github-script@v6
