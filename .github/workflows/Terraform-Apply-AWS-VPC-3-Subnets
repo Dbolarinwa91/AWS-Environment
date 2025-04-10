@@ -6,7 +6,7 @@ on:
       - completed
     branches:
       - main
-  workflow_dispatch: {} # Added to enable manual triggering
+  workflow_dispatch: # Added to enable manual triggering
 
 permissions:
   id-token: write  # Required for AWS OIDC connection
@@ -16,6 +16,7 @@ env:
   TF_LOG: INFO
   AWS_REGION: ${{ secrets.AWS_REGION }}
   TERRAFORM_VERSION: 1.11.0
+  TF_WORKING_DIR: infrastructure
 
 jobs:
   # 1. First job: Verify the trigger workflow status
@@ -23,19 +24,25 @@ jobs:
     name: 'Verify Trigger Status'
     runs-on: ubuntu-latest
     outputs:
-      trigger_status: ${{ github.event.workflow_run.conclusion || 'success' }}
-      trigger_branch: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+      should_continue: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+      target_ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.workflow_run.head_branch }}
     steps:
       - name: Print Trigger Details
         run: |
+          echo "Event name: ${{ github.event_name }}"
           if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
             echo "Triggered by workflow: ${{ github.event.workflow_run.name }}"
             echo "Workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
             echo "Workflow head branch: ${{ github.event.workflow_run.head_branch }}"
             echo "Workflow ID: ${{ github.event.workflow_run.id }}"
+            echo "Should continue: ${{ github.event.workflow_run.conclusion == 'success' }}"
+            echo "Target ref: ${{ github.event.workflow_run.head_branch }}"
           else
             echo "Triggered manually via workflow_dispatch"
             echo "Current branch: ${{ github.ref_name }}"
+            echo "Current ref: ${{ github.ref }}"
+            echo "Should continue: true"
+            echo "Target ref: ${{ github.ref }}"
           fi
 
   # 2. Main terraform apply job - Only run if the triggering workflow completed successfully or it was manually triggered
@@ -43,53 +50,53 @@ jobs:
     name: 'Terraform Apply'
     runs-on: ubuntu-latest
     needs: verify-trigger
-    if: needs.verify-trigger.outputs.trigger_status == 'success' || github.event_name == 'workflow_dispatch'
+    if: needs.verify-trigger.outputs.should_continue == 'true'
     steps:
       # 🔍 PREPARATION PHASE - Repository checkout and environment setup
       - name: 🔍 Checkout repository
         uses: actions/checkout@v4
-        id: checkout
         with:
-          ref: ${{ needs.verify-trigger.outputs.trigger_branch || github.ref }}
+          ref: ${{ needs.verify-trigger.outputs.target_ref }}
       
       - name: 🔧 Setup Terraform
         uses: hashicorp/setup-terraform@v2
-        id: setup
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
       - name: 🔐 Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
-        id: aws-credentials
         with:
           role-to-assume: ${{ secrets.AWS_ROLE }}
-          aws-region: ${{ secrets.AWS_REGION }}
-          role-session-name: GitHubActions
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TerraformApply
       
       # 🚀 INITIALIZATION PHASE - Initialize and validate Terraform
       - name: 🚀 Initialize Terraform
         id: init
-        working-directory: infrastructure
+        working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           echo "::group::Terraform Initialization"
           echo "🔄 Starting Terraform initialization..."
           
-          # Initialize with state migration enabled
-          if terraform init -migrate-state; then
+          # Check if there's an existing state file before using migrate-state
+          if terraform init; then
             echo "✅ Terraform initialization successful"
-            echo "init_status=success" >> $GITHUB_OUTPUT
           else
-            echo "❌ Terraform initialization failed"
-            echo "init_status=failure" >> $GITHUB_OUTPUT
-            exit 1
+            # If initial init fails, try with migrate-state
+            echo "⚠️ Initial initialization failed, trying with migrate-state..."
+            if terraform init -migrate-state; then
+              echo "✅ Terraform initialization with state migration successful"
+            else
+              echo "❌ Terraform initialization failed completely"
+              exit 1
+            fi
           fi
           echo "::endgroup::"
 
       - name: 🔍 Validate Terraform Configuration
         id: validate
-        working-directory: infrastructure
-        if: steps.init.outputs.init_status == 'success'
+        working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           echo "::group::Terraform Validation"
           echo "🔄 Validating Terraform configuration..."
@@ -97,24 +104,45 @@ jobs:
           # Validate Terraform configuration
           if terraform validate; then
             echo "✅ Terraform validation successful"
-            echo "validate_status=success" >> $GITHUB_OUTPUT
           else
             echo "❌ Terraform validation failed"
-            echo "validate_status=failure" >> $GITHUB_OUTPUT
             exit 1
           fi
           echo "::endgroup::"
       
-      # 🔄 APPLY PHASE - Auto-approve the apply to implement the planned changes
+      # 🔄 PLAN PHASE - Run plan before apply to capture and verify changes
+      - name: 📋 Plan Terraform Changes
+        id: plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Plan"
+          echo "🔄 Planning Terraform changes..."
+          
+          terraform plan -out=tfplan || {
+            echo "❌ Terraform plan failed"
+            exit 1
+          }
+          
+          # Check if plan has changes
+          terraform show -json tfplan | jq -e '.resource_changes[] | select(.change.actions[] != "no-op")' > /dev/null && {
+            echo "Changes detected in plan. Proceeding with apply."
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          } || {
+            echo "No changes detected in plan. Skipping apply."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          }
+          echo "::endgroup::"
+      
+      # 🔄 APPLY PHASE - Apply the planned changes if there are any
       - name: 🔄 Apply Terraform Changes
         id: apply
-        working-directory: infrastructure
-        if: steps.validate.outputs.validate_status == 'success'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        if: steps.plan.outputs.has_changes == 'true'
         run: |
           echo "::group::Terraform Apply"
-          echo "🔄 Applying Terraform changes with auto-approval..."
+          echo "🔄 Applying Terraform changes..."
           
-          if terraform apply -auto-approve; then
+          if terraform apply -auto-approve tfplan; then
             echo "✅ Terraform apply successful"
             echo "apply_status=success" >> $GITHUB_OUTPUT
           else
@@ -123,24 +151,40 @@ jobs:
             exit 1
           fi
           echo "::endgroup::"
+
+      - name: 🔄 No Changes to Apply
+        if: steps.plan.outputs.has_changes == 'false'
+        run: |
+          echo "::group::No Changes"
+          echo "✅ No infrastructure changes to apply"
+          echo "All resources are up to date"
+          echo "::endgroup::"
       
       # 📢 NOTIFICATION PHASE - Notify about the application results
       - name: 📢 Notify on Success
-        if: steps.apply.outputs.apply_status == 'success'
+        if: success()
         run: |
           echo "::group::Notification"
-          echo "✅ Infrastructure changes have been successfully applied!"
+          echo "✅ Workflow completed successfully!"
           
-          # Get output summary for notification
-          echo "## 🚀 Infrastructure Successfully Deployed"
-          echo "The Terraform infrastructure has been successfully applied."
-          echo "Deployment completed at: $(date)"
+          if [[ "${{ steps.plan.outputs.has_changes }}" == "true" ]]; then
+            echo "## 🚀 Infrastructure Successfully Updated"
+            echo "The Terraform infrastructure has been successfully applied."
+          else
+            echo "## ✓ Infrastructure Up to Date"
+            echo "No changes were needed. All resources are already in the desired state."
+          fi
+          
+          echo "Completed at: $(date)"
           echo "::endgroup::"
           
       - name: 📢 Notify on Failure
-        if: steps.apply.outputs.apply_status == 'failure'
+        if: failure()
         run: |
           echo "::group::Notification"
           echo "❌ Infrastructure deployment failed!"
-          echo "Please check the logs for more details."
+          echo "## ⚠️ Deployment Failed"
+          echo "There was an error during the infrastructure deployment process."
+          echo "Please check the logs above for detailed error information."
+          echo "Failure occurred at: $(date)"
           echo "::endgroup::"
