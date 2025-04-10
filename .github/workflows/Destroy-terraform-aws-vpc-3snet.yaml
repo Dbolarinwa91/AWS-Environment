@@ -1,0 +1,117 @@
+# This workflow installs the latest version of Terraform CLI and configures the Terraform CLI configuration file
+# with an API token for Terraform Cloud (app.terraform.io). On pull request events, this workflow will run
+# `terraform init`, `terraform fmt`, and `terraform plan` (speculative plan via Terraform Cloud). On push events
+# to the "master" branch, `terraform apply` will be executed.
+#
+# Documentation for `hashicorp/setup-terraform` is located here: https://github.com/hashicorp/setup-terraform
+#
+# To use this workflow, you will need to complete the following setup steps.
+#
+# 1. Create a `main.tf` file in the root of this repository with the `remote` backend and one or more resources defined.
+#   Example `main.tf`:
+#     # The configuration for the `remote` backend.
+#     terraform {
+#       backend "remote" {
+#         # The name of your Terraform Cloud organization.
+#         organization = "example-organization"
+#
+#         # The name of the Terraform Cloud workspace to store Terraform state files in.
+#         workspaces {
+#           name = "example-workspace"
+#         }
+#       }
+#     }
+#
+#     # An example resource that does nothing.
+#     resource "null_resource" "example" {
+#       triggers = {
+#         value = "A example resource that does nothing!"
+#       }
+#     }
+#
+#
+# 2. Generate a Terraform Cloud user API token and store it as a GitHub secret (e.g. TF_API_TOKEN) on this repository.
+#   Documentation:
+#     - https://www.terraform.io/docs/cloud/users-teams-organizations/api-tokens.html
+#     - https://help.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets
+#
+# 3. Reference the GitHub secret in step using the `hashicorp/setup-terraform` GitHub Action.
+#   Example:
+#     - name: Setup Terraform
+#       uses: hashicorp/setup-terraform@v1
+#       with:
+#         cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+name: Destroy Terraform AWS VPC 3snet
+
+on:
+  push:
+    branches:
+      -  
+
+permissions:
+  id-token: write # Required for AWS OIDC connection
+  contents: read # Required for actions/checkout
+  pull-requests: write # Required for GH bot to comment PR
+
+env:
+  TF_LOG: INFO
+  AWS_REGION: ${{ secrets.AWS_REGION }}    
+
+jobs:
+  terraform:
+    name: 'Terraform'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: .
+
+    steps:
+    - name: Checkout Repository ✅
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform 🏗️
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.11.0
+
+    - name: Configure AWS Credentials 🔑
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE }}
+        aws-region: ${{ secrets.AWS_REGION }}
+        role-session-name: GitHubActions
+
+    - name: Verifying and Applying Infrastructure Directory 🏗️
+      working-directory: infrastructure
+      run: |
+        set -e  # Fail the script on any error
+        echo "🚀 Starting Terraform Deployment"
+        terraform --version  # Print the current Terraform version
+        pwd  # Print the working directory
+        ls -la  # List files for debugging
+        
+        echo "🔍 Initializing Terraform"c
+        terraform init -migrate-state || { echo "❌ Terraform Init Failed!"; exit 1; }
+        
+        echo "✅ Terraform Initialized Successfully"
+        echo "🔍 Validating Terraform"
+        terraform validate || { echo "❌ Terraform Validation Failed!"; exit 1; }
+        
+        echo "✅ Terraform Validation Successful"
+        echo "🛠️ Running Terraform Plan (Destroy)"
+        terraform plan -destroy || { echo "❌ Terraform Plan Failed!"; exit 1; }
+        
+        echo "✅ Terraform Plan Completed"
+        echo "⚡ Applying Terraform Destroy"
+        terraform destroy -auto-approve || { echo "❌ Terraform Destroy Failed!"; exit 1; }
+        
+        echo "🎉 Terraform Destroy Completed Successfully!"
+
+      # On push to "master", build or change infrastructure according to Terraform configuration files
+      # Note: It is recommended to set up a required "strict" status check in your repository for "Terraform Cloud". See the documentation on "strict" required status checks for more information: https://help.github.com/en/github/administering-a-repository/types-of-required-status-checks
+#    - name: Terraform Apply
+#      if: github.ref == 'refs/heads/"master"' && github.event_name == 'push'
+#      run: terraform apply -auto-approve -input=false
+

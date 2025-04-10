@@ -1,0 +1,23 @@
+name: Build and Publish image to Docker Hub
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      -
+    paths:
+      - 'Dockerfile'
+
+jobs:
+  publish_images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: build image
+        run: |
+          docker build -t davidbolarinwa/david_front-end_site:latest .
+      - name: push image to docker hub
+        run: |
+          docker login -u davidbolarinwa --password ${{ secrets.DOCKERHUB_TOKEN }}
+          docker push davidbolarinwa/david_front-end_site:latest
+          
