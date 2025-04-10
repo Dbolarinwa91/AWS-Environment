@@ -120,7 +120,7 @@ jobs:
           echo "::group::Terraform Apply"
           echo "🔄 Applying Terraform changes..."  
           
-          if terraform apply -auto-approve tfplan; then
+          if terraform apply -auto-approve; then
             echo "✅ Terraform apply successful"
             echo "apply_status=success" >> $GITHUB_OUTPUT
           else
