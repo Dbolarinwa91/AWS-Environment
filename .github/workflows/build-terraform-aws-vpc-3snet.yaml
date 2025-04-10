@@ -89,6 +89,14 @@ jobs:
       working-directory: infrastructure
       if: steps.validate.outputs.validate_status == 'success'
       run: |
-        terraform plan 
+       echo "🔄 Generating Terraform plan..."
+       if terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false ; then
+        echo "✅ Terraform plan generated successfully"
+        echo "plan_status=success" >> $GITHUB_OUTPUT
+        echo "plan_exitcode=${PLAN_EXIT_CODE}" >> $GITHUB_OUTPUT
+        else
+        echo "❌ Terraform plan generation failed"
+
+
   
   
