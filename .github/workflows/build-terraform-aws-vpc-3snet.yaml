@@ -89,14 +89,48 @@ jobs:
       working-directory: infrastructure
       if: steps.validate.outputs.validate_status == 'success'
       run: |
-       echo "🔄 Generating Terraform plan..."
-       if terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false ; then
-        echo "✅ Terraform plan generated successfully"
+       echo "::group::Terraform Plan Generation"
+        echo "🔄 Generating Terraform plan..."
+
+        # Create plan directory
+        mkdir -p ./plans
+
+        # Run plan and capture output while also displaying it
+        terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false 2>&1 | tee ./plans/plan_output.txt
+        PLAN_EXIT_CODE=${PIPESTATUS[0]}
+
+        echo "✅ Terraform plan generated with exit code: ${PLAN_EXIT_CODE}"
         echo "plan_status=success" >> $GITHUB_OUTPUT
         echo "plan_exitcode=${PLAN_EXIT_CODE}" >> $GITHUB_OUTPUT
-        else
-        echo "❌ Terraform plan generation failed"
 
+        # Convert binary plan to JSON for easier parsing
+        terraform show -json ./plans/tfplan.binary > ./plans/tfplan.json || echo "Warning: Unable to convert plan to JSON format"
+
+        # Create human-readable summary
+        echo "## Terraform Plan Summary" > ./plans/plan_summary.md
+        echo "📅 Generated on: $(date)" >> ./plans/plan_summary.md
+        echo "" >> ./plans/plan_summary.md
+
+        # Count resources being added/changed/destroyed
+        # Extract numbers from the "Plan: x to add, y to change, z to destroy" line
+        PLAN_SUMMARY=$(grep "Plan:" ./plans/plan_output.txt | grep -o "Plan:.*" || echo "Plan: 0 to add, 0 to change, 0 to destroy.")
+        RESOURCES_ADD=$(echo "$PLAN_SUMMARY" | grep -o "[0-9]\+ to add" | grep -o "[0-9]\+" || echo "0")
+        RESOURCES_CHANGE=$(echo "$PLAN_SUMMARY" | grep -o "[0-9]\+ to change" | grep -o "[0-9]\+" || echo "0")
+        RESOURCES_DESTROY=$(echo "$PLAN_SUMMARY" | grep -o "[0-9]\+ to destroy" | grep -o "[0-9]\+" || echo "0")
+
+        echo "🟢 Resources to add: ${RESOURCES_ADD}" >> ./plans/plan_summary.md
+        echo "🟠 Resources to change: ${RESOURCES_CHANGE}" >> ./plans/plan_summary.md
+        echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_summary.md
+        echo "" >> ./plans/plan_summary.md
+
+        # Also print the summary to the logs
+        echo "::group::Terraform Plan Summary"
+        echo "🟢 Resources to add: ${RESOURCES_ADD}"
+        echo "🟠 Resources to change: ${RESOURCES_CHANGE}"
+        echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}"
+        echo "::endgroup::"
+
+        echo "::endgroup::"
 
   
   
