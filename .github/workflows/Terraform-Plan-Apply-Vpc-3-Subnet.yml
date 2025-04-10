@@ -1,0 +1,168 @@
+name: Terraform-Apply-AWS-VPC-3-Subnets
+on:
+  workflow_run:
+    workflows: ["Terraform-plan-aws-vpc-3subnets"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch: # Added to enable manual triggering
+
+permissions:
+  id-token: write  # Required for AWS OIDC connection
+  contents: read   # Required for actions/checkout
+
+env:
+  TF_LOG: INFO
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  TERRAFORM_VERSION: 1.11.0
+  TF_WORKING_DIR: infrastructure
+
+jobs:
+  # 1. First job: Verify the trigger workflow status
+  verify-trigger:
+    name: 'Verify Trigger Status'
+    runs-on: ubuntu-latest
+    outputs:
+      should_continue: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+      target_ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.workflow_run.head_branch }}
+    steps:
+      - name: Print Trigger Details
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "Triggered by workflow: ${{ github.event.workflow_run.name }}"
+            echo "Workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
+            echo "Workflow head branch: ${{ github.event.workflow_run.head_branch }}"
+            echo "Workflow ID: ${{ github.event.workflow_run.id }}"
+            echo "Should continue: ${{ github.event.workflow_run.conclusion == 'success' }}"
+            echo "Target ref: ${{ github.event.workflow_run.head_branch }}"
+          else
+            echo "Triggered manually via workflow_dispatch"
+            echo "Current branch: ${{ github.ref_name }}"
+            echo "Current ref: ${{ github.ref }}"
+            echo "Should continue: true"
+            echo "Target ref: ${{ github.ref }}"
+          fi
+
+  # 2. Main terraform apply job - Only run if the triggering workflow completed successfully or it was manually triggered
+  terraform-apply:
+    name: 'Terraform Apply'
+    runs-on: ubuntu-latest
+    needs: verify-trigger
+    if: needs.verify-trigger.outputs.should_continue == 'true'
+    steps:
+      # 🔍 PREPARATION PHASE - Repository checkout and environment setup
+      - name: 🔍 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify-trigger.outputs.target_ref }}
+      
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: 🔐 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TerraformApply
+      
+      # 🚀 INITIALIZATION PHASE - Initialize and validate Terraform
+      - name: 🚀 Initialize Terraform
+        id: init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Initialization"
+          echo "🔄 Starting Terraform initialization..."
+          
+          # Check if there's an existing state file before using migrate-state
+          if terraform init; then
+            echo "✅ Terraform initialization successful"
+          else
+            # If initial init fails, try with migrate-state
+            echo "⚠️ Initial initialization failed, trying with migrate-state..."
+            if terraform init -migrate-state; then
+              echo "✅ Terraform initialization with state migration successful"
+            else
+              echo "❌ Terraform initialization failed completely"
+              exit 1
+            fi
+          fi
+          echo "::endgroup::"
+
+      - name: 🔍 Validate Terraform Configuration
+        id: validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Validation"
+          echo "🔄 Validating Terraform configuration..."
+          
+          # Validate Terraform configuration
+          if terraform validate; then
+            echo "✅ Terraform validation successful"
+          else
+            echo "❌ Terraform validation failed"
+            exit 1
+          fi
+          echo "::endgroup::"
+      
+      
+      
+      # 🔄 APPLY PHASE - Apply the planned changes if there are any
+      - name: 🔄 Apply Terraform Changes
+        id: apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Apply"
+          echo "🔄 Applying Terraform changes..."  
+          
+          if terraform apply -auto-approve; then
+            echo "✅ Terraform apply successful"
+            echo "apply_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Terraform apply failed"
+            echo "apply_status=failure" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: 🔄 No Changes to Apply
+        if: steps.plan.outputs.has_changes == 'false'
+        run: |
+          echo "::group::No Changes"
+          echo "✅ No infrastructure changes to apply"
+          echo "All resources are up to date"
+          echo "::endgroup::"
+      
+      # 📢 NOTIFICATION PHASE - Notify about the application results
+      - name: 📢 Notify on Success
+        if: success()
+        run: |
+          echo "::group::Notification"
+          echo "✅ Workflow completed successfully!"
+          
+          if [[ "${{ steps.plan.outputs.has_changes }}" == "true" ]]; then
+            echo "## 🚀 Infrastructure Successfully Updated"
+            echo "The Terraform infrastructure has been successfully applied."
+          else
+            echo "## ✓ Infrastructure Up to Date"
+            echo "No changes were needed. All resources are already in the desired state."
+          fi
+          
+          echo "Completed at: $(date)"
+          echo "::endgroup::"
+          
+      - name: 📢 Notify on Failure
+        if: failure()
+        run: |
+          echo "::group::Notification"
+          echo "❌ Infrastructure deployment failed!"
+          echo "## ⚠️ Deployment Failed"
+          echo "There was an error during the infrastructure deployment process."
+          echo "Please check the logs above for detailed error information."
+          echo "Failure occurred at: $(date)"
+          echo "::endgroup::"
