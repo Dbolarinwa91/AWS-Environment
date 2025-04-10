@@ -110,37 +110,15 @@ jobs:
           fi
           echo "::endgroup::"
       
-      # 🔄 PLAN PHASE - Run plan before apply to capture and verify changes
-      - name: 📋 Plan Terraform Changes
-        id: plan
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          echo "::group::Terraform Plan"
-          echo "🔄 Planning Terraform changes..."
-          
-          terraform plan -out=tfplan || {
-            echo "❌ Terraform plan failed"
-            exit 1
-          }
-          
-          # Check if plan has changes
-          terraform show -json tfplan | jq -e '.resource_changes[] | select(.change.actions[] != "no-op")' > /dev/null && {
-            echo "Changes detected in plan. Proceeding with apply."
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          } || {
-            echo "No changes detected in plan. Skipping apply."
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          }
-          echo "::endgroup::"
+      
       
       # 🔄 APPLY PHASE - Apply the planned changes if there are any
       - name: 🔄 Apply Terraform Changes
         id: apply
         working-directory: ${{ env.TF_WORKING_DIR }}
-        if: steps.plan.outputs.has_changes == 'true'
         run: |
           echo "::group::Terraform Apply"
-          echo "🔄 Applying Terraform changes..."
+          echo "🔄 Applying Terraform changes..."  
           
           if terraform apply -auto-approve tfplan; then
             echo "✅ Terraform apply successful"
