@@ -91,10 +91,10 @@ jobs:
       run: |
         echo "::group::Terraform Plan Generation"
         echo "🔄 Generating Terraform plan..."
-        
+
         # Create plan file
         mkdir -p ./plans
-        
+
         # Run plan and capture output
         if terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false > ./plans/plan_output.txt 2>&1; then
           PLAN_EXIT_CODE=$?
@@ -120,8 +120,148 @@ jobs:
           echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_summary.md
           echo "" >> ./plans/plan_summary.md
           
-         
+          # Extract and organize resources by type
+          echo "## 🔍 Detailed Resource Changes" >> ./plans/plan_summary.md
+          echo "" >> ./plans/plan_summary.md
           
+          # Process resources to be created (additions)
+          if [ "${RESOURCES_ADD}" -gt "0" ]; then
+            echo "### 🟢 Resources To Be Created" >> ./plans/plan_summary.md
+            echo "" >> ./plans/plan_summary.md
+            
+            # Use jq to extract resource information from the JSON plan
+            jq -r '.resource_changes[] | select(.change.actions[] == "create") | "\(.type).\(.name) (\(.address))"' ./plans/tfplan.json | sort | uniq > ./plans/resources_create.txt
+            
+            # Group resources by type
+            current_type=""
+            while IFS= read -r resource; do
+              # Extract the resource type (everything before the first dot)
+              resource_type=$(echo "$resource" | cut -d'.' -f1)
+              
+              # If we have a new type, print a subheading
+              if [ "$resource_type" != "$current_type" ]; then
+                echo "#### $resource_type" >> ./plans/plan_summary.md
+                current_type="$resource_type"
+              fi
+              
+              # Get the resource address
+              resource_address=$(echo "$resource" | sed -E 's/.*\((.*)\)/\1/')
+              
+              # Extract key attributes if possible
+              echo "- \`$resource_address\`" >> ./plans/plan_summary.md
+              
+              # Try to extract some useful attributes for this resource
+              jq -r --arg addr "$resource_address" '.resource_changes[] | select(.address == $addr) | .change.after | to_entries | map("  - " + .key + ": " + (.value | tostring)) | .[]' ./plans/tfplan.json 2>/dev/null | grep -v "null" | grep -v '^\s*$' | head -5 >> ./plans/plan_summary.md
+            done < ./plans/resources_create.txt
+            
+            echo "" >> ./plans/plan_summary.md
+          fi
+          
+          # Process resources to be updated (changes)
+          if [ "${RESOURCES_CHANGE}" -gt "0" ]; then
+            echo "### 🟠 Resources To Be Updated" >> ./plans/plan_summary.md
+            echo "" >> ./plans/plan_summary.md
+            
+            # Use jq to extract resource information from the JSON plan
+            jq -r '.resource_changes[] | select(.change.actions[] == "update") | "\(.type).\(.name) (\(.address))"' ./plans/tfplan.json | sort | uniq > ./plans/resources_update.txt
+            
+            # Group resources by type
+            current_type=""
+            while IFS= read -r resource; do
+              # Extract the resource type (everything before the first dot)
+              resource_type=$(echo "$resource" | cut -d'.' -f1)
+              
+              # If we have a new type, print a subheading
+              if [ "$resource_type" != "$current_type" ]; then
+                echo "#### $resource_type" >> ./plans/plan_summary.md
+                current_type="$resource_type"
+              fi
+              
+              # Get the resource address
+              resource_address=$(echo "$resource" | sed -E 's/.*\((.*)\)/\1/')
+              
+              # Show what's changing
+              echo "- \`$resource_address\`" >> ./plans/plan_summary.md
+              echo "  <details><summary>View changes</summary>" >> ./plans/plan_summary.md
+              echo "" >> ./plans/plan_summary.md
+              echo "  ```diff" >> ./plans/plan_summary.md
+              jq -r --arg addr "$resource_address" '.resource_changes[] | select(.address == $addr) | .change | .before as $before | .after as $after | $before | keys[] | select($before[.] != $after[.]) | "  - " + . + ": " + ($before[.] | tostring) + "\n  + " + . + ": " + ($after[.] | tostring)' ./plans/tfplan.json >> ./plans/plan_summary.md
+              echo "  ```" >> ./plans/plan_summary.md
+              echo "" >> ./plans/plan_summary.md
+              echo "  </details>" >> ./plans/plan_summary.md
+            done < ./plans/resources_update.txt
+            
+            echo "" >> ./plans/plan_summary.md
+          fi
+          
+          # Process resources to be destroyed
+          if [ "${RESOURCES_DESTROY}" -gt "0" ]; then
+            echo "### 🔴 Resources To Be Destroyed" >> ./plans/plan_summary.md
+            echo "" >> ./plans/plan_summary.md
+            
+            # Use jq to extract resource information from the JSON plan
+            jq -r '.resource_changes[] | select(.change.actions[] == "delete") | "\(.type).\(.name) (\(.address))"' ./plans/tfplan.json | sort | uniq > ./plans/resources_destroy.txt
+            
+            # Group resources by type
+            current_type=""
+            while IFS= read -r resource; do
+              # Extract the resource type (everything before the first dot)
+              resource_type=$(echo "$resource" | cut -d'.' -f1)
+              
+              # If we have a new type, print a subheading
+              if [ "$resource_type" != "$current_type" ]; then
+                echo "#### $resource_type" >> ./plans/plan_summary.md
+                current_type="$resource_type"
+              fi
+              
+              # Get the resource address
+              resource_address=$(echo "$resource" | sed -E 's/.*\((.*)\)/\1/')
+              
+              # Show basic info for soon-to-be-destroyed resources
+              echo "- \`$resource_address\`" >> ./plans/plan_summary.md
+            done < ./plans/resources_destroy.txt
+            
+            echo "" >> ./plans/plan_summary.md
+          fi
+          
+          # Add infrastructure diagram section if no changes
+          if [ "${RESOURCES_ADD}" -eq "0" ] && [ "${RESOURCES_CHANGE}" -eq "0" ] && [ "${RESOURCES_DESTROY}" -eq "0" ]; then
+            echo "### 🟦 No Changes Detected" >> ./plans/plan_summary.md
+            echo "" >> ./plans/plan_summary.md
+            echo "No infrastructure changes were detected in this plan." >> ./plans/plan_summary.md
+          fi
+          
+          # Add VPC and subnet specific section for this workflow
+          echo "## 🌐 VPC & Subnet Configuration" >> ./plans/plan_summary.md
+          echo "" >> ./plans/plan_summary.md
+          
+          # Extract VPC details if present
+          VPC_COUNT=$(jq -r '.resource_changes[] | select(.type == "aws_vpc")' ./plans/tfplan.json | grep -c "address" || echo "0")
+          if [ "${VPC_COUNT}" -gt "0" ]; then
+            echo "### Virtual Private Cloud Details" >> ./plans/plan_summary.md
+            jq -r '.resource_changes[] | select(.type == "aws_vpc") | "- **VPC:** \(.address)\n  - CIDR: \(.change.after.cidr_block)\n  - DNS Support: \(.change.after.enable_dns_support)\n  - DNS Hostnames: \(.change.after.enable_dns_hostnames)"' ./plans/tfplan.json >> ./plans/plan_summary.md
+            echo "" >> ./plans/plan_summary.md
+          fi
+          
+          # Extract subnet details if present
+          SUBNET_COUNT=$(jq -r '.resource_changes[] | select(.type == "aws_subnet")' ./plans/tfplan.json | grep -c "address" || echo "0")
+          if [ "${SUBNET_COUNT}" -gt "0" ]; then
+            echo "### Subnet Configuration" >> ./plans/plan_summary.md
+            echo "" >> ./plans/plan_summary.md
+            echo "| Subnet | Availability Zone | CIDR Block | Public IP |" >> ./plans/plan_summary.md
+            echo "|--------|-------------------|------------|-----------|" >> ./plans/plan_summary.md
+            jq -r '.resource_changes[] | select(.type == "aws_subnet") | "\(.address) | \(.change.after.availability_zone // "default") | \(.change.after.cidr_block) | \(.change.after.map_public_ip_on_launch // false)"' ./plans/tfplan.json | while read -r line; do
+              echo "| \`${line/ | / | \`}" | sed 's/| false$/| ❌|/g' | sed 's/| true$/| ✅|/g' >> ./plans/plan_summary.md
+            done
+            echo "" >> ./plans/plan_summary.md
+          fi
+          
+          # Add link to full plan output
+          echo "## 📋 Full Plan Details" >> ./plans/plan_summary.md
+          echo "" >> ./plans/plan_summary.md
+          echo "For complete details, see the [full plan output](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})." >> ./plans/plan_summary.md
+          
+          # Display the summary in the GitHub Actions log
           cat ./plans/plan_summary.md
         else
           echo "❌ Terraform plan generation failed"
@@ -129,7 +269,6 @@ jobs:
           exit 1
         fi
         echo "::endgroup::"
-
 
 
 
