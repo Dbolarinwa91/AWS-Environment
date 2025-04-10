@@ -151,7 +151,7 @@ jobs:
     needs: terraform
     runs-on: ubuntu-latest
     # Only run if the terraform job succeeded
-    if: ${{ needs.terraform.outputs.plan_status == 'success' }}
+    if: ${{ needs.terraform.outputs.plan_status == 'success' || steps.plan.outputs.plan_status == 'failure'}}
     steps:
       - name: 🚀 Trigger Apply Workflow
         uses: actions/github-script@v6
