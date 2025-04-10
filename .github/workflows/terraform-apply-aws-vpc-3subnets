@@ -1,0 +1,95 @@
+name: AWS-terraform-apply
+on:
+  workflow_run:
+    workflows: ["AWS-terraform-1-vpc-3-subnet"]  # Exactly match the name of Workflow A
+    types:
+      - completed
+
+permissions:
+  id-token: write  # Required for AWS OIDC connection
+  contents: read   # Required for actions/checkout
+
+env:
+  TF_LOG: INFO
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  TERRAFORM_VERSION: 1.11.0
+
+jobs:
+  terraform-apply:
+    name: 'Terraform Apply'
+    runs-on: ubuntu-latest
+    # Only run if the triggering workflow completed successfully
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    
+    steps:
+    # 🔍 PREPARATION PHASE
+    - name: 🔍 Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.workflow_run.head_branch }}  # Use the same branch as the triggering workflow
+    
+    - name: 🔧 Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
+        cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+    - name: 🔐 Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE }}
+        aws-region: ${{ secrets.AWS_REGION }}
+        role-session-name: GitHubActions-Apply
+    
+    # 🚀 INITIALIZATION PHASE
+    - name: 🚀 Initialize Terraform
+      working-directory: infrastructure
+      run: |
+        echo "::group::Terraform Initialization"
+        echo "🔄 Starting Terraform initialization..."
+        
+        if terraform init; then
+          echo "✅ Terraform initialization successful"
+        else
+          echo "❌ Terraform initialization failed"
+          exit 1
+        fi
+        echo "::endgroup::"
+    
+    # 🔄 APPLY PHASE - Auto-approve the apply to implement the planned changes
+    - name: 🔄 Apply Terraform Changes
+      working-directory: infrastructure
+      run: |
+        echo "::group::Terraform Apply"
+        echo "🔄 Applying Terraform changes with auto-approval..."
+        
+        if terraform apply -auto-approve; then
+          echo "✅ Terraform apply successful"
+          echo "apply_status=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Terraform apply failed"
+          echo "apply_status=failure" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        echo "::endgroup::"
+    
+    # 📢 NOTIFICATION PHASE - Notify about the successful application of changes
+    - name: 📢 Notify on Success
+      if: success()
+      run: |
+        echo "::group::Notification"
+        echo "✅ Infrastructure changes have been successfully applied!"
+        
+        # Get output summary for notification
+        echo "## 🚀 Infrastructure Successfully Deployed"
+        echo "The Terraform infrastructure has been successfully applied."
+        echo "Deployment completed at: $(date)"
+        echo "::endgroup::"
+
+    - name: 📢 Notify on Failure
+      if: failure()
+      run: |
+        echo "::group::Notification"
+        echo "❌ Infrastructure deployment failed!"
+        echo "Please check the logs for more details."
+        echo "::endgroup::"
