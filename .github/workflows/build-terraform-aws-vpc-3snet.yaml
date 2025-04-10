@@ -130,21 +130,7 @@ jobs:
         fi
         echo "::endgroup::"
 
-    # 📊 REPORTING PHASE - Share plan results
-    - name: 📊 Post Plan Summary to PR
-      uses: actions/github-script@v6
-      with:
-        github-token: ${{ secrets.REPO_TOKEN }}
-        script: |
-          const fs = require('fs');
-          const planSummary = fs.readFileSync('./infrastructure/plans/plan_summary.md', 'utf8');
-          
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: planSummary
-          });
+
 
 
         
