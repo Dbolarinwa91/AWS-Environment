@@ -2,10 +2,7 @@ name: AWS-terraform-1-vpc-3-subnet
 on:
   push:
     branches:
-      - master
-  pull_request:
-    branches:
-      - master
+      - main
 
 permissions:
   id-token: write # Required for AWS OIDC connection
