@@ -151,41 +151,7 @@ jobs:
             body: planSummary
           });
 
-    - name: 📨 Upload Plan to Artifact Storage
-      uses: actions/upload-artifact@v3
-      if: steps.plan.outputs.plan_status == 'success'
-      with:
-        name: terraform-plan
-        path: |
-          infrastructure/plans/
-        retention-days: 14
-        
-    - name: 📤 Upload Plan Output to S3 Bucket
-      id: s3-upload
-      if: steps.plan.outputs.plan_status == 'success'
-      run: |
-        echo "::group::S3 Plan Upload"
-        echo "🔄 Uploading Terraform plan to S3 bucket..."
-        
-        # Create a timestamp for unique folder naming
-        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-        
-        # Create a tar.gz archive of all plan files
-        cd infrastructure
-        tar -czf terraform-plan-${TIMESTAMP}.tar.gz ./plans/
-        
-        # Upload to S3
-        if aws s3 cp terraform-plan-${TIMESTAMP}.tar.gz s3://devops-statefile-david-site-project-1234567/plan\ output/terraform-plan-${TIMESTAMP}.tar.gz; then
-          echo "✅ Successfully uploaded plan to S3 bucket"
-          echo "s3_upload_status=success" >> $GITHUB_OUTPUT
-          echo "s3_path=s3://devops-statefile-david-site-project-1234567/plan output/terraform-plan-${TIMESTAMP}.tar.gz" >> $GITHUB_OUTPUT
-        else
-          echo "❌ Failed to upload plan to S3 bucket"
-          echo "s3_upload_status=failed" >> $GITHUB_OUTPUT
-          # Continue workflow even if S3 upload fails
-        fi
-        echo "::endgroup::"
 
-   
-    
+        
+  
   
