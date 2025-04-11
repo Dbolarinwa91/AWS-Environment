@@ -161,26 +161,29 @@ jobs:
                       echo "plan_status=success" >> $GITHUB_OUTPUT
                       
                       # Check for changes by looking directly at the plan output rather than just exit code
+                      # Check for changes by looking directly at the plan output
                       if grep -q "Plan: 0 to add, 0 to change, 0 to destroy" ./plans/plan_output.txt; then
-                      echo "No changes detected"
-                      echo "has_changes=false" >> $GITHUB_OUTPUT
-                      else
-                      # Extract the numbers of resources to add, change, and destroy
-                      RESOURCES_ADD=$(grep -o "Plan:.*" ./plans/plan_output.txt | grep -o "[0-9]\+ to add" | grep -o "[0-9]\+" || echo "0")
-                      RESOURCES_CHANGE=$(grep -o "Plan:.*" ./plans/plan_output.txt | grep -o "[0-9]\+ to change" | grep -o "[0-9]\+" || echo "0")
-                      RESOURCES_DESTROY=$(grep -o "Plan:.*" ./plans/plan_output.txt | grep -o "[0-9]\+ to destroy" | grep -o "[0-9]\+" || echo "0")
-                      
-                      echo "Resources to add: ${RESOURCES_ADD}"
-                      echo "Resources to change: ${RESOURCES_CHANGE}"
-                      echo "Resources to destroy: ${RESOURCES_DESTROY}"
-                      
-                      # Check if any resources are being added, changed, or destroyed
-                      if [ "$RESOURCES_ADD" -gt "0" ] || [ "$RESOURCES_CHANGE" -gt "0" ] || [ "$RESOURCES_DESTROY" -gt "0" ]; then
-                        echo "Changes detected"
-                        echo "has_changes=true" >> $GITHUB_OUTPUT
-                      else
                         echo "No changes detected"
                         echo "has_changes=false" >> $GITHUB_OUTPUT
+                      else
+                        # Extract the numbers of resources to add, change, and destroy
+                        RESOURCES_ADD=$(grep -o "Plan:.*" ./plans/plan_output.txt | grep -o "[0-9]\+ to add" | grep -o "[0-9]\+" || echo "0")
+                        RESOURCES_CHANGE=$(grep -o "Plan:.*" ./plans/plan_output.txt | grep -o "[0-9]\+ to change" | grep -o "[0-9]\+" || echo "0")
+                        RESOURCES_DESTROY=$(grep -o "Plan:.*" ./plans/plan_output.txt | grep -o "[0-9]\+ to destroy" | grep -o "[0-9]\+" || echo "0")
+                        
+                        echo "Resources to add: ${RESOURCES_ADD}"
+                        echo "Resources to change: ${RESOURCES_CHANGE}"
+                        echo "Resources to destroy: ${RESOURCES_DESTROY}"
+                        
+                        # Check if any resources are being added, changed, or destroyed
+                        if [ "$RESOURCES_ADD" -gt "0" ] || [ "$RESOURCES_CHANGE" -gt "0" ] || [ "$RESOURCES_DESTROY" -gt "0" ]; then
+                          echo "Changes detected"
+                          echo "has_changes=true" >> $GITHUB_OUTPUT
+                        else
+                          echo "No changes detected"
+                          echo "has_changes=false" >> $GITHUB_OUTPUT
+                        fi
+                      fi
 
                       echo "🟢 Resources to add: ${RESOURCES_ADD}" >> ./plans/plan_summary.md
                       echo "🟠 Resources to change: ${RESOURCES_CHANGE}" >> ./plans/plan_summary.md
