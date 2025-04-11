@@ -244,6 +244,16 @@ jobs:
     outputs:
       apply_status: ${{ steps.apply.outputs.apply_status }}
       applied_resources: ${{ steps.apply_analysis.outputs.applied_resources }}
+      vpc_id: ${{ steps.terraform_outputs.outputs.vpc_id }}
+      vpc_cidr: ${{ steps.terraform_outputs.outputs.vpc_cidr }}
+      subnet_1_id: ${{ steps.terraform_outputs.outputs.subnet_1_id }}
+      subnet_1_cidr: ${{ steps.terraform_outputs.outputs.subnet_1_cidr }}
+      subnet_2_id: ${{ steps.terraform_outputs.outputs.subnet_2_id }}
+      subnet_2_cidr: ${{ steps.terraform_outputs.outputs.subnet_2_cidr }}
+      subnet_3_id: ${{ steps.terraform_outputs.outputs.subnet_3_id }}
+      subnet_3_cidr: ${{ steps.terraform_outputs.outputs.subnet_3_cidr }}
+      internet_gateway_id: ${{ steps.terraform_outputs.outputs.internet_gateway_id }}
+      route_table_id: ${{ steps.terraform_outputs.outputs.route_table_id }}
     
     steps:
       - name: 🔍 Checkout repository
@@ -299,6 +309,42 @@ jobs:
             echo "apply_status=failure" >> $GITHUB_OUTPUT
             exit 1
           fi
+          echo "::endgroup::"
+      
+      - name: 📋 Capture Terraform Outputs
+        id: terraform_outputs
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        if: steps.apply.outputs.apply_status == 'success'
+        run: |
+          echo "::group::Terraform Outputs"
+          # Capture VPC info
+          VPC_ID=$(terraform output -raw vpc_id || echo "N/A")
+          echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
+          VPC_CIDR=$(terraform output -raw vpc_cidr || echo "N/A")
+          echo "vpc_cidr=$VPC_CIDR" >> $GITHUB_OUTPUT
+          
+          # Capture subnet info
+          SUBNET_1_ID=$(terraform output -raw subnet_1_id || echo "N/A")
+          echo "subnet_1_id=$SUBNET_1_ID" >> $GITHUB_OUTPUT
+          SUBNET_1_CIDR=$(terraform output -raw subnet_1_cidr || echo "N/A")
+          echo "subnet_1_cidr=$SUBNET_1_CIDR" >> $GITHUB_OUTPUT
+          
+          SUBNET_2_ID=$(terraform output -raw subnet_2_id || echo "N/A")
+          echo "subnet_2_id=$SUBNET_2_ID" >> $GITHUB_OUTPUT
+          SUBNET_2_CIDR=$(terraform output -raw subnet_2_cidr || echo "N/A")
+          echo "subnet_2_cidr=$SUBNET_2_CIDR" >> $GITHUB_OUTPUT
+          
+          SUBNET_3_ID=$(terraform output -raw subnet_3_id || echo "N/A")
+          echo "subnet_3_id=$SUBNET_3_ID" >> $GITHUB_OUTPUT
+          SUBNET_3_CIDR=$(terraform output -raw subnet_3_cidr || echo "N/A")
+          echo "subnet_3_cidr=$SUBNET_3_CIDR" >> $GITHUB_OUTPUT
+          
+          # Capture other resources
+          IGW_ID=$(terraform output -raw internet_gateway_id || echo "N/A")
+          echo "internet_gateway_id=$IGW_ID" >> $GITHUB_OUTPUT
+          
+          RT_ID=$(terraform output -raw route_table_id || echo "N/A")
+          echo "route_table_id=$RT_ID" >> $GITHUB_OUTPUT
           echo "::endgroup::"
       
       - name: 📊 Analyze Apply Results
@@ -439,6 +485,28 @@ jobs:
                 echo "- No changes were needed" >> $GITHUB_STEP_SUMMARY
               fi
             fi
+            
+            # Add Infrastructure Output Variables
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🔍 Infrastructure Output Variables" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### VPC Details" >> $GITHUB_STEP_SUMMARY
+            echo "- **VPC ID**: \`${{ needs.apply.outputs.vpc_id }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **VPC CIDR**: \`${{ needs.apply.outputs.vpc_cidr }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### Subnet Details" >> $GITHUB_STEP_SUMMARY
+            echo "| Subnet | ID | CIDR Block |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|----|-----------:|" >> $GITHUB_STEP_SUMMARY
+            echo "| Subnet 1 | \`${{ needs.apply.outputs.subnet_1_id }}\` | \`${{ needs.apply.outputs.subnet_1_cidr }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Subnet 2 | \`${{ needs.apply.outputs.subnet_2_id }}\` | \`${{ needs.apply.outputs.subnet_2_cidr }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Subnet 3 | \`${{ needs.apply.outputs.subnet_3_id }}\` | \`${{ needs.apply.outputs.subnet_3_cidr }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### Network Resources" >> $GITHUB_STEP_SUMMARY
+            echo "- **Internet Gateway**: \`${{ needs.apply.outputs.internet_gateway_id }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Route Table**: \`${{ needs.apply.outputs.route_table_id }}\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "### 🔴 Workflow Completed with Issues" >> $GITHUB_STEP_SUMMARY
             echo "Please check the job logs for details on what went wrong." >> $GITHUB_STEP_SUMMARY
@@ -465,6 +533,21 @@ jobs:
           ## Infrastructure Details
           VPC with 3 public subnets was successfully deployed in AWS.
           
+          ### VPC Information
+          - VPC ID: ${{ needs.apply.outputs.vpc_id }}
+          - VPC CIDR: ${{ needs.apply.outputs.vpc_cidr }}
+          
+          ### Subnet Information
+          | Subnet | ID | CIDR Block |
+          |--------|----|-----------:|
+          | Subnet 1 | ${{ needs.apply.outputs.subnet_1_id }} | ${{ needs.apply.outputs.subnet_1_cidr }} |
+          | Subnet 2 | ${{ needs.apply.outputs.subnet_2_id }} | ${{ needs.apply.outputs.subnet_2_cidr }} |
+          | Subnet 3 | ${{ needs.apply.outputs.subnet_3_id }} | ${{ needs.apply.outputs.subnet_3_cidr }} |
+          
+          ### Network Resources
+          - Internet Gateway: ${{ needs.apply.outputs.internet_gateway_id }}
+          - Route Table: ${{ needs.apply.outputs.route_table_id }}
+          
           ## Next Steps
           Review the full deployment report in GitHub Actions.
           EOF
@@ -490,9 +573,19 @@ jobs:
           echo "🔴 Destroyed: ${{ needs.plan.outputs.resources_destroy || '0' }} resources"
           echo "🏗️ Total resources in state: ${{ needs.apply.outputs.applied_resources || 'unknown' }}"
           
+          # Show infrastructure details
+          echo "### Infrastructure Details"
+          echo "VPC ID: ${{ needs.apply.outputs.vpc_id }}"
+          echo "VPC CIDR: ${{ needs.apply.outputs.vpc_cidr }}"
+          echo "Subnet 1: ${{ needs.apply.outputs.subnet_1_id }} (${{ needs.apply.outputs.subnet_1_cidr }})"
+          echo "Subnet 2: ${{ needs.apply.outputs.subnet_2_id }} (${{ needs.apply.outputs.subnet_2_cidr }})"
+          echo "Subnet 3: ${{ needs.apply.outputs.subnet_3_id }} (${{ needs.apply.outputs.subnet_3_cidr }})"
+          echo "Internet Gateway: ${{ needs.apply.outputs.internet_gateway_id }}"
+          echo "Route Table: ${{ needs.apply.outputs.route_table_id }}"
+          
           echo "Completed at: $(date)"
           echo "::endgroup::"
-      
+          echo "✅ Notification sent"
       - name: 📢 Notify on Failure
         if: |
           needs.prepare.result == 'failure' || 
