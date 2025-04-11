@@ -16,10 +16,107 @@ env:
   TF_WORKING_DIR: infrastructure
 
 jobs:
-  # PHASE 1: VALIDATE & PLAN
-  terraform-plan:
-    name: '📝 Validate & Plan'
+  # PHASE 1: PREPARE
+  prepare:
+    name: '🔍 Prepare Environment'
     runs-on: ubuntu-latest
+    outputs:
+      environment_ready: ${{ steps.env_check.outputs.environment_ready }}
+    
+    steps:
+      - name: 🔍 Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: 🔐 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions
+      
+      - name: ✅ Verify Environment
+        id: env_check
+        run: |
+          echo "Verifying environment setup..."
+          terraform --version
+          aws sts get-caller-identity
+          echo "environment_ready=true" >> $GITHUB_OUTPUT
+
+  # PHASE 2: VALIDATE
+  validate:
+    name: '🧪 Validate Infrastructure'
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.environment_ready == 'true'
+    outputs:
+      validate_status: ${{ steps.validate.outputs.validate_status }}
+    
+    steps:
+      - name: 🔍 Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: 🔐 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions
+      
+      - name: 🚀 Initialize Terraform
+        id: init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Initialization"
+          echo "🔄 Starting Terraform initialization..."
+          
+          # Initialize with state migration enabled
+          if terraform init -migrate-state; then
+            echo "✅ Terraform initialization successful"
+            echo "init_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Terraform initialization failed"
+            echo "init_status=failure" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: 🔍 Validate Terraform Configuration
+        id: validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        if: steps.init.outputs.init_status == 'success'
+        run: |
+          echo "::group::Terraform Validation"
+          echo "🔄 Validating Terraform configuration..."
+          
+          # Validate Terraform configuration
+          if terraform validate; then
+            echo "✅ Terraform validation successful"
+            echo "validate_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Terraform validation failed"
+            echo "validate_status=failure" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "::endgroup::"
+
+  # PHASE 3: PLAN
+  plan:
+    name: '📝 Plan Infrastructure Changes'
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.validate_status == 'success'
     outputs:
       plan_status: ${{ steps.plan.outputs.plan_status }}
       has_changes: ${{ steps.plan.outputs.has_changes }}
@@ -41,29 +138,10 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           role-session-name: GitHubActions
       
-      - name: 🚀 Initialize & Validate Terraform
-        id: init
+      - name: 🚀 Initialize Terraform
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          echo "::group::Terraform Initialization & Validation"
-          echo "🔄 Starting Terraform initialization..."
-          
-          # Initialize with state migration enabled
-          if terraform init -migrate-state; then
-            echo "✅ Terraform initialization successful"
-            
-            # Validate Terraform configuration
-            if terraform validate; then
-              echo "✅ Terraform validation successful"
-            else
-              echo "❌ Terraform validation failed"
-              exit 1
-            fi
-          else
-            echo "❌ Terraform initialization failed"
-            exit 1
-          fi
-          echo "::endgroup::"
+          terraform init -migrate-state
       
       - name: 📝 Create Terraform Plan
         id: plan
@@ -103,15 +181,24 @@ jobs:
           echo "" >> ./plans/plan_summary.md
 
           # Count resources being added/changed/destroyed
+          # Extract numbers from the "Plan: x to add, y to change, z to destroy" line
           PLAN_SUMMARY=$(grep "Plan:" ./plans/plan_output.txt | grep -o "Plan:.*" || echo "Plan: 0 to add, 0 to change, 0 to destroy.")
           RESOURCES_ADD=$(echo "$PLAN_SUMMARY" | grep -o "[0-9]\+ to add" | grep -o "[0-9]\+" || echo "0")
           RESOURCES_CHANGE=$(echo "$PLAN_SUMMARY" | grep -o "[0-9]\+ to change" | grep -o "[0-9]\+" || echo "0")
           RESOURCES_DESTROY=$(echo "$PLAN_SUMMARY" | grep -o "[0-9]\+ to destroy" | grep -o "[0-9]\+" || echo "0")
 
-          # Save summary to file and print to logs
-          echo "🟢 Resources to add: ${RESOURCES_ADD}" | tee -a ./plans/plan_summary.md
-          echo "🟠 Resources to change: ${RESOURCES_CHANGE}" | tee -a ./plans/plan_summary.md
-          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" | tee -a ./plans/plan_summary.md
+          echo "🟢 Resources to add: ${RESOURCES_ADD}" >> ./plans/plan_summary.md
+          echo "🟠 Resources to change: ${RESOURCES_CHANGE}" >> ./plans/plan_summary.md
+          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_summary.md
+          echo "" >> ./plans/plan_summary.md
+
+          # Also print the summary to the logs
+          echo "::group::Terraform Plan Summary"
+          echo "🟢 Resources to add: ${RESOURCES_ADD}"
+          echo "🟠 Resources to change: ${RESOURCES_CHANGE}"
+          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}"
+          echo "::endgroup::"
+
           echo "::endgroup::"
       
       - name: 📝 Upload Plan Artifacts
@@ -121,13 +208,21 @@ jobs:
           name: terraform-plans
           path: ${{ env.TF_WORKING_DIR }}/plans/
           retention-days: 5
+      
+      - name: 🚫 No Changes Required
+        if: steps.plan.outputs.has_changes == 'false'
+        run: |
+          echo "::group::No Changes"
+          echo "✅ Infrastructure is up to date"
+          echo "No changes needed to be applied."
+          echo "::endgroup::"
 
-  # PHASE 2: APPLY (Only if changes detected)
-  terraform-apply:
-    name: '🚀 Apply Changes'
+  # PHASE 4: APPLY (Only if changes detected)
+  apply:
+    name: '🚀 Apply Infrastructure Changes'
     runs-on: ubuntu-latest
-    needs: terraform-plan
-    if: needs.terraform-plan.outputs.has_changes == 'true'
+    needs: plan
+    if: needs.plan.outputs.has_changes == 'true'
     outputs:
       apply_status: ${{ steps.apply.outputs.apply_status }}
     
@@ -148,17 +243,28 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActions-TerraformApply
       
-      - name: 🚀 Initialize Terraform & Apply Changes
+      - name: 🚀 Initialize Terraform
+        id: init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Initialization"
+          echo "🔄 Starting Terraform initialization..."
+          
+          if terraform init -migrate-state; then
+            echo "✅ Terraform initialization successful"
+          else
+            echo "❌ Terraform initialization failed"
+            exit 1
+          fi
+          echo "::endgroup::"
+      
+      - name: 🔄 Apply Terraform Changes
         id: apply
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           echo "::group::Terraform Apply"
-          # Initialize with state migration
-          echo "🔄 Initializing Terraform..."
-          terraform init -migrate-state
+          echo "🔄 Applying Terraform changes..."  
           
-          # Apply changes
-          echo "🔄 Applying Terraform changes..."
           if terraform apply -auto-approve; then
             echo "✅ Terraform apply successful"
             echo "apply_status=success" >> $GITHUB_OUTPUT
@@ -169,11 +275,11 @@ jobs:
           fi
           echo "::endgroup::"
 
-  # PHASE 3: NOTIFICATION
-  terraform-notify:
-    name: '📢 Status Summary'
+  # PHASE 5: NOTIFICATION
+  notify:
+    name: '📢 Send Notifications'
     runs-on: ubuntu-latest
-    needs: [terraform-plan, terraform-apply]
+    needs: [prepare, validate, plan, apply]
     if: always()
     
     steps:
@@ -183,12 +289,14 @@ jobs:
           echo "📅 Run completed at: $(date)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Status by Phase:" >> $GITHUB_STEP_SUMMARY
-          echo "- 📝 Validate & Plan: ${{ needs.terraform-plan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔍 Prepare: ${{ needs.prepare.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🧪 Validate: ${{ needs.validate.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 📝 Plan: ${{ needs.plan.result }}" >> $GITHUB_STEP_SUMMARY
           
-          if [[ "${{ needs.terraform-plan.result }}" == "success" ]]; then
-            if [[ "${{ needs.terraform-plan.outputs.has_changes }}" == "true" ]]; then
+          if [[ "${{ needs.plan.result }}" == "success" ]]; then
+            if [[ "${{ needs.plan.outputs.has_changes }}" == "true" ]]; then
               echo "  - Changes detected: YES" >> $GITHUB_STEP_SUMMARY
-              echo "- 🚀 Apply: ${{ needs.terraform-apply.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+              echo "- 🚀 Apply: ${{ needs.apply.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
             else
               echo "  - Changes detected: NO" >> $GITHUB_STEP_SUMMARY
               echo "- 🚀 Apply: skipped (no changes)" >> $GITHUB_STEP_SUMMARY
@@ -197,10 +305,10 @@ jobs:
           
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [[ "${{ needs.terraform-apply.result }}" == "success" ]]; then
+          if [[ "${{ needs.apply.result }}" == "success" ]]; then
             echo "### 🟢 Infrastructure Successfully Updated" >> $GITHUB_STEP_SUMMARY
             echo "The Terraform infrastructure has been successfully applied." >> $GITHUB_STEP_SUMMARY
-          elif [[ "${{ needs.terraform-plan.outputs.has_changes }}" == "false" && "${{ needs.terraform-plan.result }}" == "success" ]]; then
+          elif [[ "${{ needs.plan.outputs.has_changes }}" == "false" && "${{ needs.plan.result }}" == "success" ]]; then
             echo "### 🟢 Infrastructure Up to Date" >> $GITHUB_STEP_SUMMARY
             echo "No changes were needed. All resources are already in the desired state." >> $GITHUB_STEP_SUMMARY
           else
@@ -208,14 +316,45 @@ jobs:
             echo "Please check the job logs for details on what went wrong." >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: 📢 Notification
+      - name: 📢 Notify on Success
+        if: |
+          (needs.apply.result == 'success') || 
+          (needs.plan.result == 'success' && needs.plan.outputs.has_changes == 'false')
         run: |
-          if [[ "${{ needs.terraform-apply.result }}" == "success" ]]; then
-            echo "✅ Infrastructure successfully updated!"
-          elif [[ "${{ needs.terraform-plan.outputs.has_changes }}" == "false" && "${{ needs.terraform-plan.result }}" == "success" ]]; then
-            echo "✅ Infrastructure is already up to date."
-          elif [[ "${{ needs.terraform-plan.result }}" == "failure" ]]; then
-            echo "❌ Validation or planning failed. Check logs for details."
-          elif [[ "${{ needs.terraform-apply.result }}" == "failure" ]]; then
-            echo "❌ Apply operation failed. Check logs for details."
+          echo "::group::Notification"
+          echo "✅ Workflow completed successfully!"
+          
+          if [[ "${{ needs.plan.outputs.has_changes }}" == "true" ]]; then
+            echo "## 🚀 Infrastructure Successfully Updated"
+            echo "The Terraform infrastructure has been successfully applied."
+          else
+            echo "## ✓ Infrastructure Up to Date"
+            echo "No changes were needed. All resources are already in the desired state."
           fi
+          
+          echo "Completed at: $(date)"
+          echo "::endgroup::"
+      
+      - name: 📢 Notify on Failure
+        if: |
+          needs.prepare.result == 'failure' || 
+          needs.validate.result == 'failure' || 
+          needs.plan.result == 'failure' || 
+          needs.apply.result == 'failure'
+        run: |
+          echo "::group::Notification"
+          echo "❌ Workflow failed!"
+          
+          if [[ "${{ needs.prepare.result }}" == "failure" ]]; then
+            echo "## ⚠️ Environment Preparation Failed"
+          elif [[ "${{ needs.validate.result }}" == "failure" ]]; then
+            echo "## ⚠️ Terraform Validation Failed"
+          elif [[ "${{ needs.plan.result }}" == "failure" ]]; then
+            echo "## ⚠️ Terraform Plan Failed"
+          elif [[ "${{ needs.apply.result }}" == "failure" ]]; then
+            echo "## ⚠️ Terraform Apply Failed"
+          fi
+          
+          echo "Please check the logs for detailed error information."
+          echo "Failure occurred at: $(date)"
+          echo "::endgroup::"
