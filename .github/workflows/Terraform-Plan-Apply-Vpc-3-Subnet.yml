@@ -311,8 +311,12 @@ jobs:
           # Run terraform state list to get current resources
           terraform state list > ./apply_results/current_state.txt
           
-          # Get an accurate count
-          RESOURCE_COUNT=$(wc -l < ./apply_results/current_state.txt | tr -d '[:space:]')
+          # Debug output - show raw content and line count
+          echo "Debug - state file content:"
+          cat ./apply_results/current_state.txt
+          
+          # Get an accurate count by explicitly counting lines
+          RESOURCE_COUNT=$(grep -c ^ ./apply_results/current_state.txt || echo "0")
           
           echo "Total resources in state: ${RESOURCE_COUNT}"
           echo "applied_resources=${RESOURCE_COUNT}" >> $GITHUB_OUTPUT
@@ -326,8 +330,10 @@ jobs:
           echo "## Resources By Type" >> ./apply_results/apply_breakdown.md
           # Group resources by type and count them
           if [ -s ./apply_results/current_state.txt ]; then
-            cut -d. -f1 ./apply_results/current_state.txt | sort | uniq -c | sort -nr | while read count type; do
-              echo "- **${type}**: ${count} resources" >> ./apply_results/apply_breakdown.md
+            # Use a more reliable method to group by resource type
+            echo "Resource types breakdown:" >> ./apply_results/apply_breakdown.md
+            awk -F. '{print $1}' ./apply_results/current_state.txt | sort | uniq -c | while read count type; do
+              echo "- **${type}**: ${count}" >> ./apply_results/apply_breakdown.md
             done
           else
             echo "- No resources found in state" >> ./apply_results/apply_breakdown.md
@@ -349,23 +355,24 @@ jobs:
           # Get VPC ID and CIDR if exists
           if grep -q "aws_vpc" ./apply_results/current_state.txt; then
             echo "### VPC Information" >> ./apply_results/apply_breakdown.md
-            terraform state show $(grep "aws_vpc" ./apply_results/current_state.txt | head -1) | grep -E 'id|cidr_block = "|tags' >> ./apply_results/apply_breakdown.md
+            VPC_RESOURCE=$(grep "aws_vpc" ./apply_results/current_state.txt | head -1)
+            echo "VPC Resource: ${VPC_RESOURCE}" >> ./apply_results/apply_breakdown.md
+            terraform state show "${VPC_RESOURCE}" | grep -E 'id|cidr_block|tags' >> ./apply_results/apply_breakdown.md
             echo "" >> ./apply_results/apply_breakdown.md
           fi
           
           # Get Subnet details if they exist
           if grep -q "aws_subnet" ./apply_results/current_state.txt; then
             echo "### Subnet Information" >> ./apply_results/apply_breakdown.md
-            for subnet in $(grep "aws_subnet" ./apply_results/current_state.txt); do
+            grep "aws_subnet" ./apply_results/current_state.txt | while read subnet; do
               echo "#### ${subnet}" >> ./apply_results/apply_breakdown.md
-              terraform state show ${subnet} | grep -E 'id|cidr_block|availability_zone|vpc_id' >> ./apply_results/apply_breakdown.md
+              terraform state show "${subnet}" | grep -E 'id|cidr_block|availability_zone|vpc_id' >> ./apply_results/apply_breakdown.md
               echo "" >> ./apply_results/apply_breakdown.md
             done
           fi
           
           echo "✅ Apply analysis complete"
           echo "::endgroup::"
-      
       - name: 📝 Upload Apply Results
         uses: actions/upload-artifact@v4
         if: steps.apply.outputs.apply_status == 'success'
