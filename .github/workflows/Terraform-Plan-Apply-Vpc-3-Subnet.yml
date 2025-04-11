@@ -1,117 +1,360 @@
-name: CI/CD Pipeline
-
+name: Terraform-Apply-AWS-VPC-3-Subnets
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  id-token: write  # Required for AWS OIDC connection
+  contents: read   # Required for actions/checkout
+
+env:
+  TF_LOG: INFO
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  TERRAFORM_VERSION: ${{ secrets.TERRAFORM_VERSION }}
+  TF_WORKING_DIR: infrastructure
 
 jobs:
-  # Step 1: Read version and create tag
-  version-and-tag:
-    name: Create Version Tag
+  # PHASE 1: PREPARE
+  prepare:
+    name: '🔍 Prepare Environment'
     runs-on: ubuntu-latest
     outputs:
-      version_tag: ${{ steps.get_version.outputs.version_tag }}
+      environment_ready: ${{ steps.env_check.outputs.environment_ready }}
+    
     steps:
-      - name: Checkout code
+      - name: 🔍 Checkout repository
         uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v2
         with:
-          token: ${{ secrets.AUTH_TOKEN }}
-      
-      - name: Bump version and create tag
-        id: create_tag
-        uses: melheffe/version_release_composer@master
-        env:
-          PREPEND: 'v'
-          APPEND: '.aws'
-          DRAFT: 'false'
-          PRERELEASE: 'true'
-          TOKEN: ${{ secrets.AUTH_TOKEN }}
-          TRIGGER: ${{ github.ref_name }}
-          REPO_OWNER: rohit
-          VERSION_FILE_NAME: 'VERSION'
-      
-      - name: Get created tag
-        id: get_version
-        run: |
-          # Extract the tag created in previous step
-          echo "version_tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
-  
-  # Step 2: Build the application
-  build:
-    name: Build Application
-    needs: version-and-tag
-    runs-on: ubuntu-latest
-    outputs:
-      build_id: ${{ steps.build_info.outputs.build_id }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.AUTH_TOKEN }}
-          ref: ${{ needs.version-and-tag.outputs.version_tag }}
-      
-      - name: Set up build environment
-        run: |
-          echo "Setting up build environment"
-          # Add your build setup steps here
-      
-      - name: Build application
-        run: |
-          echo "Building application with tag ${{ needs.version-and-tag.outputs.version_tag }}"
-          # Add your build commands here
-      
-      - name: Generate build info
-        id: build_info
-        run: |
-          echo "build_id=${{ github.run_id }}-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
-  # Step 3: Run tests
-  test:
-    name: Test Application
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.AUTH_TOKEN }}
-          ref: ${{ needs.version-and-tag.outputs.version_tag }}
-      
-      - name: Run tests
-        run: |
-          echo "Running tests for build ${{ needs.build.outputs.build_id }}"
-          # Add your test commands here
-
-  # Step 4: Deploy to Dev environment
-  deploy-dev:
-    name: Deploy to Dev
-    needs: [build, test]
-    runs-on: ubuntu-latest
-    environment:
-      name: Dev
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.AUTH_TOKEN }}
-      
-      - name: Configure AWS credentials
+      - name: 🔐 Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE }}
           aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions
       
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-      
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
+      - name: ✅ Verify Environment
+        id: env_check
         run: |
-          # Build a docker container and push it to ECR
-          echo "Using tag: ${{ needs.version-and-tag.outputs.version_tag }}"
-          docker build -t ${{secrets.ECR_REPO_URI}}/${{secrets.REPO_NAME}}:${{ needs.version-and-tag.outputs.version_tag }} .
-          docker push ${{secrets.ECR_REPO_URI}}/${{secrets.REPO_NAME}}:${{ needs.version-and-tag.outputs.version_tag }}
+          echo "Verifying environment setup..."
+          terraform --version
+          aws sts get-caller-identity
+          echo "environment_ready=true" >> $GITHUB_OUTPUT
+
+  # PHASE 2: VALIDATE
+  validate:
+    name: '🧪 Validate Infrastructure'
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.environment_ready == 'true'
+    outputs:
+      validate_status: ${{ steps.validate.outputs.validate_status }}
+    
+    steps:
+      - name: 🔍 Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: 🔐 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions
+      
+      - name: 🚀 Initialize Terraform
+        id: init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Initialization"
+          echo "🔄 Starting Terraform initialization..."
+          
+          # Initialize with state migration enabled
+          if terraform init -migrate-state; then
+            echo "✅ Terraform initialization successful"
+            echo "init_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Terraform initialization failed"
+            echo "init_status=failure" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: 🔍 Validate Terraform Configuration
+        id: validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        if: steps.init.outputs.init_status == 'success'
+        run: |
+          echo "::group::Terraform Validation"
+          echo "🔄 Validating Terraform configuration..."
+          
+          # Validate Terraform configuration
+          if terraform validate; then
+            echo "✅ Terraform validation successful"
+            echo "validate_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Terraform validation failed"
+            echo "validate_status=failure" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "::endgroup::"
+
+  # PHASE 3: PLAN
+  plan:
+    name: '📝 Plan Infrastructure Changes'
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.validate_status == 'success'
+    outputs:
+      plan_status: ${{ steps.plan.outputs.plan_status }}
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+    
+    steps:
+      - name: 🔍 Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: 🔐 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions
+      
+      - name: 🚀 Initialize Terraform
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init -migrate-state
+      
+      - name: 📝 Create Terraform Plan
+        id: plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Plan Generation"
+          echo "🔄 Generating Terraform plan..."
+
+          # Create plan directory
+          mkdir -p ./plans
+
+          # Run plan and capture output while also displaying it
+          terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false 2>&1 | tee ./plans/plan_output.txt
+          PLAN_EXIT_CODE=${PIPESTATUS[0]}
+
+          echo "✅ Terraform plan generated with exit code: ${PLAN_EXIT_CODE}"
+          echo "plan_status=success" >> $GITHUB_OUTPUT
+          
+          # Check if there are any changes
+          if [ "$PLAN_EXIT_CODE" -eq "0" ]; then
+            echo "No changes detected"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          elif [ "$PLAN_EXIT_CODE" -eq "2" ]; then
+            echo "Changes detected"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "Error during plan"
+            exit 1
+          fi
+
+          # Convert binary plan to JSON for easier parsing
+          terraform show -json ./plans/tfplan.binary > ./plans/tfplan.json || echo "Warning: Unable to convert plan to JSON format"
+
+          # Create human-readable summary
+          echo "## Terraform Plan Summary" > ./plans/plan_summary.md
+          echo "📅 Generated on: $(date)" >> ./plans/plan_summary.md
+          echo "" >> ./plans/plan_summary.md
+
+          # Count resources being added/changed/destroyed
+          # Extract numbers from the "Plan: x to add, y to change, z to destroy" line
+          PLAN_SUMMARY=$(grep "Plan:" ./plans/plan_output.txt | grep -o "Plan:.*" || echo "Plan: 0 to add, 0 to change, 0 to destroy.")
+          RESOURCES_ADD=$(echo "$PLAN_SUMMARY" | grep -o "[0-9]\+ to add" | grep -o "[0-9]\+" || echo "0")
+          RESOURCES_CHANGE=$(echo "$PLAN_SUMMARY" | grep -o "[0-9]\+ to change" | grep -o "[0-9]\+" || echo "0")
+          RESOURCES_DESTROY=$(echo "$PLAN_SUMMARY" | grep -o "[0-9]\+ to destroy" | grep -o "[0-9]\+" || echo "0")
+
+          echo "🟢 Resources to add: ${RESOURCES_ADD}" >> ./plans/plan_summary.md
+          echo "🟠 Resources to change: ${RESOURCES_CHANGE}" >> ./plans/plan_summary.md
+          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_summary.md
+          echo "" >> ./plans/plan_summary.md
+
+          # Also print the summary to the logs
+          echo "::group::Terraform Plan Summary"
+          echo "🟢 Resources to add: ${RESOURCES_ADD}"
+          echo "🟠 Resources to change: ${RESOURCES_CHANGE}"
+          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}"
+          echo "::endgroup::"
+
+          echo "::endgroup::"
+      
+      - name: 📝 Upload Plan Artifacts
+        uses: actions/upload-artifact@v3
+        if: steps.plan.outputs.plan_status == 'success'
+        with:
+          name: terraform-plans
+          path: ${{ env.TF_WORKING_DIR }}/plans/
+          retention-days: 5
+      
+      - name: 🚫 No Changes Required
+        if: steps.plan.outputs.has_changes == 'false'
+        run: |
+          echo "::group::No Changes"
+          echo "✅ Infrastructure is up to date"
+          echo "No changes needed to be applied."
+          echo "::endgroup::"
+
+  # PHASE 4: APPLY (Only if changes detected)
+  apply:
+    name: '🚀 Apply Infrastructure Changes'
+    runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.has_changes == 'true'
+    outputs:
+      apply_status: ${{ steps.apply.outputs.apply_status }}
+    
+    steps:
+      - name: 🔍 Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: 🔐 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TerraformApply
+      
+      - name: 🚀 Initialize Terraform
+        id: init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Initialization"
+          echo "🔄 Starting Terraform initialization..."
+          
+          if terraform init -migrate-state; then
+            echo "✅ Terraform initialization successful"
+          else
+            echo "❌ Terraform initialization failed"
+            exit 1
+          fi
+          echo "::endgroup::"
+      
+      - name: 🔄 Apply Terraform Changes
+        id: apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Apply"
+          echo "🔄 Applying Terraform changes..."  
+          
+          if terraform apply -auto-approve; then
+            echo "✅ Terraform apply successful"
+            echo "apply_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Terraform apply failed"
+            echo "apply_status=failure" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "::endgroup::"
+
+  # PHASE 5: NOTIFICATION
+  notify:
+    name: '📢 Send Notifications'
+    runs-on: ubuntu-latest
+    needs: [prepare, validate, plan, apply]
+    if: always()
+    
+    steps:
+      - name: 📊 Workflow Summary
+        run: |
+          echo "## Terraform Workflow Summary" > $GITHUB_STEP_SUMMARY
+          echo "📅 Run completed at: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Status by Phase:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔍 Prepare: ${{ needs.prepare.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🧪 Validate: ${{ needs.validate.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 📝 Plan: ${{ needs.plan.result }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.plan.result }}" == "success" ]]; then
+            if [[ "${{ needs.plan.outputs.has_changes }}" == "true" ]]; then
+              echo "  - Changes detected: YES" >> $GITHUB_STEP_SUMMARY
+              echo "- 🚀 Apply: ${{ needs.apply.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "  - Changes detected: NO" >> $GITHUB_STEP_SUMMARY
+              echo "- 🚀 Apply: skipped (no changes)" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.apply.result }}" == "success" ]]; then
+            echo "### 🟢 Infrastructure Successfully Updated" >> $GITHUB_STEP_SUMMARY
+            echo "The Terraform infrastructure has been successfully applied." >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.plan.outputs.has_changes }}" == "false" && "${{ needs.plan.result }}" == "success" ]]; then
+            echo "### 🟢 Infrastructure Up to Date" >> $GITHUB_STEP_SUMMARY
+            echo "No changes were needed. All resources are already in the desired state." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### 🔴 Workflow Completed with Issues" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the job logs for details on what went wrong." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 📢 Notify on Success
+        if: |
+          (needs.apply.result == 'success') || 
+          (needs.plan.result == 'success' && needs.plan.outputs.has_changes == 'false')
+        run: |
+          echo "::group::Notification"
+          echo "✅ Workflow completed successfully!"
+          
+          if [[ "${{ needs.plan.outputs.has_changes }}" == "true" ]]; then
+            echo "## 🚀 Infrastructure Successfully Updated"
+            echo "The Terraform infrastructure has been successfully applied."
+          else
+            echo "## ✓ Infrastructure Up to Date"
+            echo "No changes were needed. All resources are already in the desired state."
+          fi
+          
+          echo "Completed at: $(date)"
+          echo "::endgroup::"
+      
+      - name: 📢 Notify on Failure
+        if: |
+          needs.prepare.result == 'failure' || 
+          needs.validate.result == 'failure' || 
+          needs.plan.result == 'failure' || 
+          needs.apply.result == 'failure'
+        run: |
+                echo "::group::Notification"
+                echo "❌ Workflow failed!"
+                
+                if [[ "${{ needs.prepare.result }}" == "failure" ]]; then
+                  echo "## ⚠️ Environment Preparation Failed"
+                elif [[ "${{ needs.validate.result }}" == "failure" ]]; then
+                  echo "## ⚠️ Terraform Validation Failed"
+                elif [[ "${{ needs.plan.result }}" == "failure" ]]; then
+                  echo "## ⚠️ Terraform Plan Failed"
+                elif [[ "${{ needs.apply.result }}" == "failure" ]]; then
+                  echo "## ⚠️ Terraform Apply Failed"
+                fi
+                
+                echo "Please check the logs for detailed error information."
+                echo "Failure occurred at: $(date)"
+                echo "::endgroup::"
