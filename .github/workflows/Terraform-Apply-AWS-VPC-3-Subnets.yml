@@ -5,7 +5,7 @@ on:
     types:
       - completed
     branches:
-      - main
+      - 
   workflow_dispatch: # Added to enable manual triggering
 
 permissions:

@@ -2,10 +2,10 @@ name: Terraform-plan-aws-vpc-3subnets
 on:
   push:
     branches:
-      - main
+      -
   pull_request:
     branches:
-      - main
+      -
   workflow_dispatch:  # Allow manual triggering
 
 permissions:
