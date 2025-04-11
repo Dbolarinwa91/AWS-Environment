@@ -119,7 +119,6 @@ jobs:
     if: needs.validate.outputs.validate_status == 'success'
     outputs:
       plan_status: ${{ steps.plan.outputs.plan_status }}
-      has_changes: ${{ steps.plan.outputs.has_changes }}
     
     steps:
       - name: 🔍 Checkout repository
@@ -160,41 +159,8 @@ jobs:
           echo "✅ Terraform plan generated with exit code: ${PLAN_EXIT_CODE}"
           echo "plan_status=success" >> $GITHUB_OUTPUT
 
-          # Fixed change detection logic - use grep to extract numbers and trim whitespace
-          RESOURCES_ADD=$(grep -o "Plan: [0-9]\+ to add" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
-          RESOURCES_CHANGE=$(grep -o "[0-9]\+ to change" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
-          RESOURCES_DESTROY=$(grep -o "[0-9]\+ to destroy" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
-          
-          # Convert to integers and trim any whitespace
-          RESOURCES_ADD=$(echo $RESOURCES_ADD | tr -d ' \n\r')
-          RESOURCES_CHANGE=$(echo $RESOURCES_CHANGE | tr -d ' \n\r')
-          RESOURCES_DESTROY=$(echo $RESOURCES_DESTROY | tr -d ' \n\r')
-          
-          echo "Resources to add: ${RESOURCES_ADD}"
-          echo "Resources to change: ${RESOURCES_CHANGE}"
-          echo "Resources to destroy: ${RESOURCES_DESTROY}"
-          
-          # Improved numerical comparison
-          if [ "$RESOURCES_ADD" -gt 0 ] || [ "$RESOURCES_CHANGE" -gt 0 ] || [ "$RESOURCES_DESTROY" -gt 0 ]; then
-            echo "Changes detected"
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "No changes detected"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          fi
-
           # Create summary markdown file
-          echo "🟢 Resources to add: ${RESOURCES_ADD}" >> ./plans/plan_summary.md
-          echo "🟠 Resources to change: ${RESOURCES_CHANGE}" >> ./plans/plan_summary.md
-          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_summary.md
-          echo "" >> ./plans/plan_summary.md
-
-          # Also print the summary to the logs
-          echo "::group::Terraform Plan Summary"
-          echo "🟢 Resources to add: ${RESOURCES_ADD}"
-          echo "🟠 Resources to change: ${RESOURCES_CHANGE}"
-          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}"
-          echo "::endgroup::"
+          echo "Terraform plan completed. See logs for details." >> ./plans/plan_summary.md
 
           echo "::endgroup::"
 
@@ -205,21 +171,13 @@ jobs:
           name: terraform-plans
           path: ${{ env.TF_WORKING_DIR }}/plans/
           retention-days: 5
-      
-      - name: 🚫 No Changes Required
-        if: steps.plan.outputs.has_changes == 'false'
-        run: |
-          echo "::group::No Changes"
-          echo "✅ Infrastructure is up to date"
-          echo "No changes needed to be applied."
-          echo "::endgroup::"
 
-  # PHASE 4: APPLY (Only if changes detected)
+  # PHASE 4: APPLY (always run if plan succeeds)
   apply:
     name: '🚀 Apply Infrastructure Changes'
     runs-on: ubuntu-latest
     needs: plan
-    if: needs.plan.outputs.has_changes == 'true'
+    if: needs.plan.outputs.plan_status == 'success'
     outputs:
       apply_status: ${{ steps.apply.outputs.apply_status }}
     
@@ -289,46 +247,25 @@ jobs:
           echo "- 🔍 Prepare: ${{ needs.prepare.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- 🧪 Validate: ${{ needs.validate.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- 📝 Plan: ${{ needs.plan.result }}" >> $GITHUB_STEP_SUMMARY
-          
-          if [[ "${{ needs.plan.result }}" == "success" ]]; then
-            if [[ "${{ needs.plan.outputs.has_changes }}" == "true" ]]; then
-              echo "  - Changes detected: YES" >> $GITHUB_STEP_SUMMARY
-              echo "- 🚀 Apply: ${{ needs.apply.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "  - Changes detected: NO" >> $GITHUB_STEP_SUMMARY
-              echo "- 🚀 Apply: skipped (no changes)" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
+          echo "- 🚀 Apply: ${{ needs.apply.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
           
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ needs.apply.result }}" == "success" ]]; then
             echo "### 🟢 Infrastructure Successfully Updated" >> $GITHUB_STEP_SUMMARY
             echo "The Terraform infrastructure has been successfully applied." >> $GITHUB_STEP_SUMMARY
-          elif [[ "${{ needs.plan.outputs.has_changes }}" == "false" && "${{ needs.plan.result }}" == "success" ]]; then
-            echo "### 🟢 Infrastructure Up to Date" >> $GITHUB_STEP_SUMMARY
-            echo "No changes were needed. All resources are already in the desired state." >> $GITHUB_STEP_SUMMARY
           else
             echo "### 🔴 Workflow Completed with Issues" >> $GITHUB_STEP_SUMMARY
             echo "Please check the job logs for details on what went wrong." >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: 📢 Notify on Success
-        if: |
-          (needs.apply.result == 'success') || 
-          (needs.plan.result == 'success' && needs.plan.outputs.has_changes == 'false')
+        if: needs.apply.result == 'success'
         run: |
           echo "::group::Notification"
           echo "✅ Workflow completed successfully!"
-          
-          if [[ "${{ needs.plan.outputs.has_changes }}" == "true" ]]; then
-            echo "## 🚀 Infrastructure Successfully Updated"
-            echo "The Terraform infrastructure has been successfully applied."
-          else
-            echo "## ✓ Infrastructure Up to Date"
-            echo "No changes were needed. All resources are already in the desired state."
-          fi
-          
+          echo "## 🚀 Infrastructure Successfully Updated"
+          echo "The Terraform infrastructure has been successfully applied."
           echo "Completed at: $(date)"
           echo "::endgroup::"
       
