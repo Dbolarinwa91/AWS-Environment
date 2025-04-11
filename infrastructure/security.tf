@@ -27,6 +27,33 @@ resource "aws_security_group" "ecs_tasks" {
   depends_on = [aws_vpc.main]
 }
 
+# Security Group for SonarQube Tasks
+resource "aws_security_group" "sonarqube_tasks" {
+  name        = "sonarqube-tasks-sg-david"
+  description = "Allow inbound traffic to SonarQube tasks"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    protocol        = "tcp"
+    from_port       = 9000
+    to_port         = 9000
+    cidr_blocks     = ["0.0.0.0/0"]
+  }
+
+  egress {
+    protocol    = "-1"
+    from_port   = 0
+    to_port     = 0
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  tags = {
+    Name = "sonarqube-sg-devops-David-site-project"
+  }
+  
+  depends_on = [aws_vpc.main]
+}
+
 # Security group for the load balancer
 resource "aws_security_group" "lb_sg" {
   name        = "lb-sg-david"
@@ -36,6 +63,13 @@ resource "aws_security_group" "lb_sg" {
   ingress {
     from_port   = 80
     to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  ingress {
+    from_port   = 9000
+    to_port     = 9000
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }

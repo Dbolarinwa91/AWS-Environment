@@ -9,3 +9,13 @@ resource "aws_cloudwatch_log_group" "ecs_logs" {
     Name = "ecs-logs-devops-David-site-project"
   }
 }
+
+# CloudWatch Log Group for SonarQube
+resource "aws_cloudwatch_log_group" "sonarqube_logs" {
+  name              = "/ecs/sonarqube-container"
+  retention_in_days = 30
+  
+  tags = {
+    Name = "sonarqube-logs-devops-David-site-project"
+  }
+}
