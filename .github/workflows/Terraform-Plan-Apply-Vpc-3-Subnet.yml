@@ -173,15 +173,26 @@ jobs:
         run: |
           echo "::group::Plan Analysis"
           
-          # Extract resource counts for job outputs
-          RESOURCES_ADD=$(grep -o "Plan: [0-9]\+ to add" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
-          RESOURCES_CHANGE=$(grep -o "[0-9]\+ to change" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
-          RESOURCES_DESTROY=$(grep -o "[0-9]\+ to destroy" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
+          # Extract the Plan summary line from the output
+          PLAN_SUMMARY=$(grep "Plan:" ./plans/plan_output.txt | head -1 || echo "Plan: 0 to add, 0 to change, 0 to destroy")
+          echo "Plan summary: ${PLAN_SUMMARY}"
           
-          # Ensure the values are clean
-          RESOURCES_ADD=$(echo $RESOURCES_ADD | tr -d ' \n\r')
-          RESOURCES_CHANGE=$(echo $RESOURCES_CHANGE | tr -d ' \n\r')
-          RESOURCES_DESTROY=$(echo $RESOURCES_DESTROY | tr -d ' \n\r')
+          # Extract the numbers using sed for better precision
+          RESOURCES_ADD=$(echo "${PLAN_SUMMARY}" | sed -n 's/.*Plan: \([0-9]\+\) to add.*/\1/p' || echo "0")
+          RESOURCES_CHANGE=$(echo "${PLAN_SUMMARY}" | sed -n 's/.*\([0-9]\+\) to change.*/\1/p' || echo "0")
+          RESOURCES_DESTROY=$(echo "${PLAN_SUMMARY}" | sed -n 's/.*\([0-9]\+\) to destroy.*/\1/p' || echo "0")
+          
+          # Ensure the values are clean integers
+          RESOURCES_ADD=$(echo "${RESOURCES_ADD}" | tr -d ' \n\r' || echo "0")
+          [ -z "${RESOURCES_ADD}" ] && RESOURCES_ADD="0"
+          RESOURCES_CHANGE=$(echo "${RESOURCES_CHANGE}" | tr -d ' \n\r' || echo "0") 
+          [ -z "${RESOURCES_CHANGE}" ] && RESOURCES_CHANGE="0"
+          RESOURCES_DESTROY=$(echo "${RESOURCES_DESTROY}" | tr -d ' \n\r' || echo "0")
+          [ -z "${RESOURCES_DESTROY}" ] && RESOURCES_DESTROY="0"
+          
+          echo "Resources to add: ${RESOURCES_ADD}"
+          echo "Resources to change: ${RESOURCES_CHANGE}"
+          echo "Resources to destroy: ${RESOURCES_DESTROY}"
           
           # Report to job outputs
           echo "resources_add=${RESOURCES_ADD}" >> $GITHUB_OUTPUT
@@ -196,22 +207,22 @@ jobs:
           echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_breakdown.md
           echo "" >> ./plans/plan_breakdown.md
           
-          # Extract resource names and types to be added/changed/destroyed
+          # Extract resource names and types from the plan
           echo "## Detailed Resource Changes" >> ./plans/plan_breakdown.md
           
           # Resources to add
           echo "### Resources to be created:" >> ./plans/plan_breakdown.md
-          grep -A 1 "# .* will be created" ./plans/plan_output.txt | grep -v "will be created" | grep -v -- "^--$" | sed 's/^[[:space:]]*/- /' >> ./plans/plan_breakdown.md
+          grep -A 1 "# .* will be created" ./plans/plan_output.txt | grep -v "will be created" | grep -v -- "^--$" | sed 's/^[[:space:]]*/- /' >> ./plans/plan_breakdown.md || echo "None" >> ./plans/plan_breakdown.md
           echo "" >> ./plans/plan_breakdown.md
           
           # Resources to change
           echo "### Resources to be modified:" >> ./plans/plan_breakdown.md
-          grep -A 1 "# .* will be updated in-place" ./plans/plan_output.txt | grep -v "will be updated in-place" | grep -v -- "^--$" | sed 's/^[[:space:]]*/- /' >> ./plans/plan_breakdown.md
+          grep -A 1 "# .* will be updated in-place" ./plans/plan_output.txt | grep -v "will be updated in-place" | grep -v -- "^--$" | sed 's/^[[:space:]]*/- /' >> ./plans/plan_breakdown.md || echo "None" >> ./plans/plan_breakdown.md
           echo "" >> ./plans/plan_breakdown.md
           
           # Resources to destroy
           echo "### Resources to be destroyed:" >> ./plans/plan_breakdown.md
-          grep -A 1 "# .* will be destroyed" ./plans/plan_output.txt | grep -v "will be destroyed" | grep -v -- "^--$" | sed 's/^[[:space:]]*/- /' >> ./plans/plan_breakdown.md
+          grep -A 1 "# .* will be destroyed" ./plans/plan_output.txt | grep -v "will be destroyed" | grep -v -- "^--$" | sed 's/^[[:space:]]*/- /' >> ./plans/plan_breakdown.md || echo "None" >> ./plans/plan_breakdown.md
           
           echo "✅ Plan analysis complete"
           echo "::endgroup::"
@@ -299,7 +310,9 @@ jobs:
           
           # Run terraform state list to get current resources
           terraform state list > ./apply_results/current_state.txt
-          RESOURCE_COUNT=$(wc -l < ./apply_results/current_state.txt | xargs)
+          
+          # Get an accurate count
+          RESOURCE_COUNT=$(wc -l < ./apply_results/current_state.txt | tr -d '[:space:]')
           
           echo "Total resources in state: ${RESOURCE_COUNT}"
           echo "applied_resources=${RESOURCE_COUNT}" >> $GITHUB_OUTPUT
@@ -312,13 +325,22 @@ jobs:
           
           echo "## Resources By Type" >> ./apply_results/apply_breakdown.md
           # Group resources by type and count them
-          cat ./apply_results/current_state.txt | cut -d. -f1 | sort | uniq -c | sort -nr | while read count type; do
-            echo "- **${type}**: ${count} resources" >> ./apply_results/apply_breakdown.md
-          done
+          if [ -s ./apply_results/current_state.txt ]; then
+            cut -d. -f1 ./apply_results/current_state.txt | sort | uniq -c | sort -nr | while read count type; do
+              echo "- **${type}**: ${count} resources" >> ./apply_results/apply_breakdown.md
+            done
+          else
+            echo "- No resources found in state" >> ./apply_results/apply_breakdown.md
+          fi
+          
           echo "" >> ./apply_results/apply_breakdown.md
           
           echo "## Complete Resource List" >> ./apply_results/apply_breakdown.md
-          cat ./apply_results/current_state.txt | sed 's/^/- /' >> ./apply_results/apply_breakdown.md
+          if [ -s ./apply_results/current_state.txt ]; then
+            cat ./apply_results/current_state.txt | sed 's/^/- /' >> ./apply_results/apply_breakdown.md
+          else
+            echo "- No resources found in state" >> ./apply_results/apply_breakdown.md
+          fi
           
           # Also capture output attributes of key resources
           echo "" >> ./apply_results/apply_breakdown.md
@@ -414,6 +436,36 @@ jobs:
             echo "### 🔴 Workflow Completed with Issues" >> $GITHUB_STEP_SUMMARY
             echo "Please check the job logs for details on what went wrong." >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: 📊 Send Detailed Results
+        id: send_results
+        if: needs.plan.outputs.resources_add != '0' || needs.plan.outputs.resources_change != '0' || needs.plan.outputs.resources_destroy != '0'
+        run: |
+          # For Slack/Teams/Email notifications, prepare a rich message
+          cat << EOF > terraform_report.txt
+          # Terraform Infrastructure Update Report
+          
+          ## Overview
+          - Workflow completed at: $(date)
+          - Status: ${{ (needs.apply.result == 'success') && 'SUCCESS ✅' || 'FAILED ❌' }}
+          
+          ## Resource Changes
+          - 🟢 Added: ${{ needs.plan.outputs.resources_add }} resources
+          - 🟠 Modified: ${{ needs.plan.outputs.resources_change }} resources
+          - 🔴 Destroyed: ${{ needs.plan.outputs.resources_destroy }} resources
+          - 🏗️ Total resources in state: ${{ needs.apply.outputs.applied_resources || 'unknown' }}
+          
+          ## Infrastructure Details
+          VPC with 3 public subnets was successfully deployed in AWS.
+          
+          ## Next Steps
+          Review the full deployment report in GitHub Actions.
+          EOF
+          
+          # Send a notification (mock for now - replace with actual implementation)
+          echo "📨 Would send notification with the following content:"
+          cat terraform_report.txt
+          echo "✅ Results prepared for notification"
 
       - name: 📢 Notify on Success
         if: needs.apply.result == 'success'
