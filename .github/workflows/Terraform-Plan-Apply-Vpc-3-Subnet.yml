@@ -147,57 +147,57 @@ jobs:
         id: plan
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-              echo "::group::Terraform Plan Generation"
-                      echo "🔄 Generating Terraform plan..."
+          echo "::group::Terraform Plan Generation"
+          echo "🔄 Generating Terraform plan..."
 
-                      # Create plan directory
-                      mkdir -p ./plans
+          # Create plan directory
+          mkdir -p ./plans
 
-                      # Run plan and capture output while also displaying it
-                      terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false 2>&1 | tee ./plans/plan_output.txt
-                      PLAN_EXIT_CODE=${PIPESTATUS[0]}
+          # Run plan and capture output while also displaying it
+          terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false 2>&1 | tee ./plans/plan_output.txt
+          PLAN_EXIT_CODE=${PIPESTATUS[0]}
 
-                      echo "✅ Terraform plan generated with exit code: ${PLAN_EXIT_CODE}"
-                      echo "plan_status=success" >> $GITHUB_OUTPUT
-                      
-                      # Check for changes by looking directly at the plan output rather than just exit code
-                      # Check for changes by looking directly at the plan output
-                      if grep -q "Plan: 0 to add, 0 to change, 0 to destroy" ./plans/plan_output.txt; then
-                        echo "No changes detected"
-                        echo "has_changes=false" >> $GITHUB_OUTPUT
-                      else
-                        # Extract the numbers of resources to add, change, and destroy
-                        RESOURCES_ADD=$(grep -o "Plan:.*" ./plans/plan_output.txt | grep -o "[0-9]\+ to add" | grep -o "[0-9]\+" || echo "0")
-                        RESOURCES_CHANGE=$(grep -o "Plan:.*" ./plans/plan_output.txt | grep -o "[0-9]\+ to change" | grep -o "[0-9]\+" || echo "0")
-                        RESOURCES_DESTROY=$(grep -o "Plan:.*" ./plans/plan_output.txt | grep -o "[0-9]\+ to destroy" | grep -o "[0-9]\+" || echo "0")
-                        
-                        echo "Resources to add: ${RESOURCES_ADD}"
-                        echo "Resources to change: ${RESOURCES_CHANGE}"
-                        echo "Resources to destroy: ${RESOURCES_DESTROY}"
-                        
-                        # Check if any resources are being added, changed, or destroyed
-                        if [ "$RESOURCES_ADD" -gt "0" ] || [ "$RESOURCES_CHANGE" -gt "0" ] || [ "$RESOURCES_DESTROY" -gt "0" ]; then
-                          echo "Changes detected"
-                          echo "has_changes=true" >> $GITHUB_OUTPUT
-                        else
-                          echo "No changes detected"
-                          echo "has_changes=false" >> $GITHUB_OUTPUT
-                        fi
-                      fi
+          echo "✅ Terraform plan generated with exit code: ${PLAN_EXIT_CODE}"
+          echo "plan_status=success" >> $GITHUB_OUTPUT
 
-                      echo "🟢 Resources to add: ${RESOURCES_ADD}" >> ./plans/plan_summary.md
-                      echo "🟠 Resources to change: ${RESOURCES_CHANGE}" >> ./plans/plan_summary.md
-                      echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_summary.md
-                      echo "" >> ./plans/plan_summary.md
+          # Fixed change detection logic - use grep to extract numbers and trim whitespace
+          RESOURCES_ADD=$(grep -o "Plan: [0-9]\+ to add" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
+          RESOURCES_CHANGE=$(grep -o "[0-9]\+ to change" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
+          RESOURCES_DESTROY=$(grep -o "[0-9]\+ to destroy" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
+          
+          # Convert to integers and trim any whitespace
+          RESOURCES_ADD=$(echo $RESOURCES_ADD | tr -d ' \n\r')
+          RESOURCES_CHANGE=$(echo $RESOURCES_CHANGE | tr -d ' \n\r')
+          RESOURCES_DESTROY=$(echo $RESOURCES_DESTROY | tr -d ' \n\r')
+          
+          echo "Resources to add: ${RESOURCES_ADD}"
+          echo "Resources to change: ${RESOURCES_CHANGE}"
+          echo "Resources to destroy: ${RESOURCES_DESTROY}"
+          
+          # Improved numerical comparison
+          if [ "$RESOURCES_ADD" -gt 0 ] || [ "$RESOURCES_CHANGE" -gt 0 ] || [ "$RESOURCES_DESTROY" -gt 0 ]; then
+            echo "Changes detected"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "No changes detected"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
 
-                      # Also print the summary to the logs
-                      echo "::group::Terraform Plan Summary"
-                      echo "🟢 Resources to add: ${RESOURCES_ADD}"
-                      echo "🟠 Resources to change: ${RESOURCES_CHANGE}"
-                      echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}"
-                      echo "::endgroup::"
+          # Create summary markdown file
+          echo "🟢 Resources to add: ${RESOURCES_ADD}" >> ./plans/plan_summary.md
+          echo "🟠 Resources to change: ${RESOURCES_CHANGE}" >> ./plans/plan_summary.md
+          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_summary.md
+          echo "" >> ./plans/plan_summary.md
 
-                      echo "::endgroup::"
+          # Also print the summary to the logs
+          echo "::group::Terraform Plan Summary"
+          echo "🟢 Resources to add: ${RESOURCES_ADD}"
+          echo "🟠 Resources to change: ${RESOURCES_CHANGE}"
+          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}"
+          echo "::endgroup::"
+
+          echo "::endgroup::"
+
       - name: 📝 Upload Plan Artifacts
         uses: actions/upload-artifact@v4
         if: steps.plan.outputs.plan_status == 'success'
