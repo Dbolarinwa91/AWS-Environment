@@ -119,6 +119,9 @@ jobs:
     if: needs.validate.outputs.validate_status == 'success'
     outputs:
       plan_status: ${{ steps.plan.outputs.plan_status }}
+      resources_add: ${{ steps.plan_analysis.outputs.resources_add }}
+      resources_change: ${{ steps.plan_analysis.outputs.resources_change }}
+      resources_destroy: ${{ steps.plan_analysis.outputs.resources_destroy }}
     
     steps:
       - name: 🔍 Checkout repository
@@ -153,15 +156,64 @@ jobs:
           mkdir -p ./plans
 
           # Run plan and capture output while also displaying it
-          terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false 2>&1 | tee ./plans/plan_output.txt
+          terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false -no-color 2>&1 | tee ./plans/plan_output.txt
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
 
           echo "✅ Terraform plan generated with exit code: ${PLAN_EXIT_CODE}"
           echo "plan_status=success" >> $GITHUB_OUTPUT
-
-          # Create summary markdown file
-          echo "Terraform plan completed. See logs for details." >> ./plans/plan_summary.md
-
+          
+          # Also extract detailed resource changes for human-readable output
+          terraform show -no-color ./plans/tfplan.binary > ./plans/tfplan_details.txt
+          
+          echo "::endgroup::"
+      
+      - name: 📊 Analyze Plan Results
+        id: plan_analysis
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Plan Analysis"
+          
+          # Extract resource counts for job outputs
+          RESOURCES_ADD=$(grep -o "Plan: [0-9]\+ to add" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
+          RESOURCES_CHANGE=$(grep -o "[0-9]\+ to change" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
+          RESOURCES_DESTROY=$(grep -o "[0-9]\+ to destroy" ./plans/plan_output.txt | grep -o "[0-9]\+" || echo "0")
+          
+          # Ensure the values are clean
+          RESOURCES_ADD=$(echo $RESOURCES_ADD | tr -d ' \n\r')
+          RESOURCES_CHANGE=$(echo $RESOURCES_CHANGE | tr -d ' \n\r')
+          RESOURCES_DESTROY=$(echo $RESOURCES_DESTROY | tr -d ' \n\r')
+          
+          # Report to job outputs
+          echo "resources_add=${RESOURCES_ADD}" >> $GITHUB_OUTPUT
+          echo "resources_change=${RESOURCES_CHANGE}" >> $GITHUB_OUTPUT
+          echo "resources_destroy=${RESOURCES_DESTROY}" >> $GITHUB_OUTPUT
+          
+          # Create a detailed breakdown file
+          echo "# Terraform Plan Analysis" > ./plans/plan_breakdown.md
+          echo "## Summary" >> ./plans/plan_breakdown.md
+          echo "🟢 Resources to add: ${RESOURCES_ADD}" >> ./plans/plan_breakdown.md
+          echo "🟠 Resources to change: ${RESOURCES_CHANGE}" >> ./plans/plan_breakdown.md
+          echo "🔴 Resources to destroy: ${RESOURCES_DESTROY}" >> ./plans/plan_breakdown.md
+          echo "" >> ./plans/plan_breakdown.md
+          
+          # Extract resource names and types to be added/changed/destroyed
+          echo "## Detailed Resource Changes" >> ./plans/plan_breakdown.md
+          
+          # Resources to add
+          echo "### Resources to be created:" >> ./plans/plan_breakdown.md
+          grep -A 1 "# .* will be created" ./plans/plan_output.txt | grep -v "will be created" | grep -v -- "^--$" | sed 's/^[[:space:]]*/- /' >> ./plans/plan_breakdown.md
+          echo "" >> ./plans/plan_breakdown.md
+          
+          # Resources to change
+          echo "### Resources to be modified:" >> ./plans/plan_breakdown.md
+          grep -A 1 "# .* will be updated in-place" ./plans/plan_output.txt | grep -v "will be updated in-place" | grep -v -- "^--$" | sed 's/^[[:space:]]*/- /' >> ./plans/plan_breakdown.md
+          echo "" >> ./plans/plan_breakdown.md
+          
+          # Resources to destroy
+          echo "### Resources to be destroyed:" >> ./plans/plan_breakdown.md
+          grep -A 1 "# .* will be destroyed" ./plans/plan_output.txt | grep -v "will be destroyed" | grep -v -- "^--$" | sed 's/^[[:space:]]*/- /' >> ./plans/plan_breakdown.md
+          
+          echo "✅ Plan analysis complete"
           echo "::endgroup::"
 
       - name: 📝 Upload Plan Artifacts
@@ -172,7 +224,7 @@ jobs:
           path: ${{ env.TF_WORKING_DIR }}/plans/
           retention-days: 5
 
-  # PHASE 4: APPLY (always run if plan succeeds)
+  # PHASE 4: APPLY
   apply:
     name: '🚀 Apply Infrastructure Changes'
     runs-on: ubuntu-latest
@@ -180,6 +232,7 @@ jobs:
     if: needs.plan.outputs.plan_status == 'success'
     outputs:
       apply_status: ${{ steps.apply.outputs.apply_status }}
+      applied_resources: ${{ steps.apply_analysis.outputs.applied_resources }}
     
     steps:
       - name: 🔍 Checkout repository
@@ -218,9 +271,16 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           echo "::group::Terraform Apply"
-          echo "🔄 Applying Terraform changes..."  
+          echo "🔄 Applying Terraform changes..."
           
-          if terraform apply -auto-approve; then
+          # Create apply directory
+          mkdir -p ./apply_results
+          
+          # Run apply and capture output
+          terraform apply -auto-approve -no-color 2>&1 | tee ./apply_results/apply_output.txt
+          APPLY_EXIT_CODE=${PIPESTATUS[0]}
+          
+          if [ $APPLY_EXIT_CODE -eq 0 ]; then
             echo "✅ Terraform apply successful"
             echo "apply_status=success" >> $GITHUB_OUTPUT
           else
@@ -229,6 +289,68 @@ jobs:
             exit 1
           fi
           echo "::endgroup::"
+      
+      - name: 📊 Analyze Apply Results
+        id: apply_analysis
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        if: steps.apply.outputs.apply_status == 'success'
+        run: |
+          echo "::group::Apply Analysis"
+          
+          # Run terraform state list to get current resources
+          terraform state list > ./apply_results/current_state.txt
+          RESOURCE_COUNT=$(wc -l < ./apply_results/current_state.txt | xargs)
+          
+          echo "Total resources in state: ${RESOURCE_COUNT}"
+          echo "applied_resources=${RESOURCE_COUNT}" >> $GITHUB_OUTPUT
+          
+          # Create a detailed breakdown of current state
+          echo "# Terraform Apply Results" > ./apply_results/apply_breakdown.md
+          echo "## Current Infrastructure State" >> ./apply_results/apply_breakdown.md
+          echo "Total resources managed: ${RESOURCE_COUNT}" >> ./apply_results/apply_breakdown.md
+          echo "" >> ./apply_results/apply_breakdown.md
+          
+          echo "## Resources By Type" >> ./apply_results/apply_breakdown.md
+          # Group resources by type and count them
+          cat ./apply_results/current_state.txt | cut -d. -f1 | sort | uniq -c | sort -nr | while read count type; do
+            echo "- **${type}**: ${count} resources" >> ./apply_results/apply_breakdown.md
+          done
+          echo "" >> ./apply_results/apply_breakdown.md
+          
+          echo "## Complete Resource List" >> ./apply_results/apply_breakdown.md
+          cat ./apply_results/current_state.txt | sed 's/^/- /' >> ./apply_results/apply_breakdown.md
+          
+          # Also capture output attributes of key resources
+          echo "" >> ./apply_results/apply_breakdown.md
+          echo "## Key Infrastructure Details" >> ./apply_results/apply_breakdown.md
+          
+          # Get VPC ID and CIDR if exists
+          if grep -q "aws_vpc" ./apply_results/current_state.txt; then
+            echo "### VPC Information" >> ./apply_results/apply_breakdown.md
+            terraform state show $(grep "aws_vpc" ./apply_results/current_state.txt | head -1) | grep -E 'id|cidr_block = "|tags' >> ./apply_results/apply_breakdown.md
+            echo "" >> ./apply_results/apply_breakdown.md
+          fi
+          
+          # Get Subnet details if they exist
+          if grep -q "aws_subnet" ./apply_results/current_state.txt; then
+            echo "### Subnet Information" >> ./apply_results/apply_breakdown.md
+            for subnet in $(grep "aws_subnet" ./apply_results/current_state.txt); do
+              echo "#### ${subnet}" >> ./apply_results/apply_breakdown.md
+              terraform state show ${subnet} | grep -E 'id|cidr_block|availability_zone|vpc_id' >> ./apply_results/apply_breakdown.md
+              echo "" >> ./apply_results/apply_breakdown.md
+            done
+          fi
+          
+          echo "✅ Apply analysis complete"
+          echo "::endgroup::"
+      
+      - name: 📝 Upload Apply Results
+        uses: actions/upload-artifact@v4
+        if: steps.apply.outputs.apply_status == 'success'
+        with:
+          name: terraform-apply-results
+          path: ${{ env.TF_WORKING_DIR }}/apply_results/
+          retention-days: 5
 
   # PHASE 5: NOTIFICATION
   notify:
@@ -247,13 +369,47 @@ jobs:
           echo "- 🔍 Prepare: ${{ needs.prepare.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- 🧪 Validate: ${{ needs.validate.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- 📝 Plan: ${{ needs.plan.result }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.plan.result }}" == "success" ]]; then
+            echo "  - 🟢 Resources to add: ${{ needs.plan.outputs.resources_add || '0' }}" >> $GITHUB_STEP_SUMMARY
+            echo "  - 🟠 Resources to change: ${{ needs.plan.outputs.resources_change || '0' }}" >> $GITHUB_STEP_SUMMARY
+            echo "  - 🔴 Resources to destroy: ${{ needs.plan.outputs.resources_destroy || '0' }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           echo "- 🚀 Apply: ${{ needs.apply.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.apply.result }}" == "success" ]]; then
+            echo "  - 🏗️ Total resources in state: ${{ needs.apply.outputs.applied_resources || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
+          fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ needs.apply.result }}" == "success" ]]; then
             echo "### 🟢 Infrastructure Successfully Updated" >> $GITHUB_STEP_SUMMARY
             echo "The Terraform infrastructure has been successfully applied." >> $GITHUB_STEP_SUMMARY
+            
+            # If we have resource counts, show them
+            if [[ -n "${{ needs.plan.outputs.resources_add }}" ]] || [[ -n "${{ needs.plan.outputs.resources_change }}" ]] || [[ -n "${{ needs.plan.outputs.resources_destroy }}" ]]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "#### Changes Applied:" >> $GITHUB_STEP_SUMMARY
+              
+              # Only show non-zero resource counts
+              if [[ "${{ needs.plan.outputs.resources_add }}" != "0" ]]; then
+                echo "- ✅ Added: ${{ needs.plan.outputs.resources_add }} resources" >> $GITHUB_STEP_SUMMARY
+              fi
+              
+              if [[ "${{ needs.plan.outputs.resources_change }}" != "0" ]]; then
+                echo "- 🔄 Modified: ${{ needs.plan.outputs.resources_change }} resources" >> $GITHUB_STEP_SUMMARY
+              fi
+              
+              if [[ "${{ needs.plan.outputs.resources_destroy }}" != "0" ]]; then
+                echo "- 🗑️ Destroyed: ${{ needs.plan.outputs.resources_destroy }} resources" >> $GITHUB_STEP_SUMMARY
+              fi
+              
+              if [[ "${{ needs.plan.outputs.resources_add }}" == "0" ]] && [[ "${{ needs.plan.outputs.resources_change }}" == "0" ]] && [[ "${{ needs.plan.outputs.resources_destroy }}" == "0" ]]; then
+                echo "- No changes were needed" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
           else
             echo "### 🔴 Workflow Completed with Issues" >> $GITHUB_STEP_SUMMARY
             echo "Please check the job logs for details on what went wrong." >> $GITHUB_STEP_SUMMARY
@@ -264,8 +420,17 @@ jobs:
         run: |
           echo "::group::Notification"
           echo "✅ Workflow completed successfully!"
+          
           echo "## 🚀 Infrastructure Successfully Updated"
           echo "The Terraform infrastructure has been successfully applied."
+          
+          # Show resource changes
+          echo "### Resource Changes:"
+          echo "🟢 Added: ${{ needs.plan.outputs.resources_add || '0' }} resources"
+          echo "🟠 Modified: ${{ needs.plan.outputs.resources_change || '0' }} resources"
+          echo "🔴 Destroyed: ${{ needs.plan.outputs.resources_destroy || '0' }} resources"
+          echo "🏗️ Total resources in state: ${{ needs.apply.outputs.applied_resources || 'unknown' }}"
+          
           echo "Completed at: $(date)"
           echo "::endgroup::"
       
