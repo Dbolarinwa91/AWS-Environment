@@ -1,168 +1,117 @@
-name: Terraform-Apply-AWS-VPC-3-Subnets
+name: CI/CD Pipeline
+
 on:
-  workflow_run:
-    workflows: ["Terraform-plan-aws-vpc-3subnets"]
-    types:
-      - completed
+  push:
     branches:
-      - main
-  workflow_dispatch: # Added to enable manual triggering
-
-permissions:
-  id-token: write  # Required for AWS OIDC connection
-  contents: read   # Required for actions/checkout
-
-env:
-  TF_LOG: INFO
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  TERRAFORM_VERSION: 1.11.0
-  TF_WORKING_DIR: infrastructure
+      - devops
+  workflow_dispatch:
 
 jobs:
-  # 1. First job: Verify the trigger workflow status
-  verify-trigger:
-    name: 'Verify Trigger Status'
+  # Step 1: Read version and create tag
+  version-and-tag:
+    name: Create Version Tag
     runs-on: ubuntu-latest
     outputs:
-      should_continue: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-      target_ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.workflow_run.head_branch }}
+      version_tag: ${{ steps.get_version.outputs.version_tag }}
     steps:
-      - name: Print Trigger Details
-        run: |
-          echo "Event name: ${{ github.event_name }}"
-          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            echo "Triggered by workflow: ${{ github.event.workflow_run.name }}"
-            echo "Workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
-            echo "Workflow head branch: ${{ github.event.workflow_run.head_branch }}"
-            echo "Workflow ID: ${{ github.event.workflow_run.id }}"
-            echo "Should continue: ${{ github.event.workflow_run.conclusion == 'success' }}"
-            echo "Target ref: ${{ github.event.workflow_run.head_branch }}"
-          else
-            echo "Triggered manually via workflow_dispatch"
-            echo "Current branch: ${{ github.ref_name }}"
-            echo "Current ref: ${{ github.ref }}"
-            echo "Should continue: true"
-            echo "Target ref: ${{ github.ref }}"
-          fi
-
-  # 2. Main terraform apply job - Only run if the triggering workflow completed successfully or it was manually triggered
-  terraform-apply:
-    name: 'Terraform Apply'
-    runs-on: ubuntu-latest
-    needs: verify-trigger
-    if: needs.verify-trigger.outputs.should_continue == 'true'
-    steps:
-      # 🔍 PREPARATION PHASE - Repository checkout and environment setup
-      - name: 🔍 Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.verify-trigger.outputs.target_ref }}
+          token: ${{ secrets.AUTH_TOKEN }}
       
-      - name: 🔧 Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+      - name: Bump version and create tag
+        id: create_tag
+        uses: melheffe/version_release_composer@master
+        env:
+          PREPEND: 'v'
+          APPEND: '.aws'
+          DRAFT: 'false'
+          PRERELEASE: 'true'
+          TOKEN: ${{ secrets.AUTH_TOKEN }}
+          TRIGGER: ${{ github.ref_name }}
+          REPO_OWNER: rohit
+          VERSION_FILE_NAME: 'VERSION'
+      
+      - name: Get created tag
+        id: get_version
+        run: |
+          # Extract the tag created in previous step
+          echo "version_tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+  
+  # Step 2: Build the application
+  build:
+    name: Build Application
+    needs: version-and-tag
+    runs-on: ubuntu-latest
+    outputs:
+      build_id: ${{ steps.build_info.outputs.build_id }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
-          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+          token: ${{ secrets.AUTH_TOKEN }}
+          ref: ${{ needs.version-and-tag.outputs.version_tag }}
+      
+      - name: Set up build environment
+        run: |
+          echo "Setting up build environment"
+          # Add your build setup steps here
+      
+      - name: Build application
+        run: |
+          echo "Building application with tag ${{ needs.version-and-tag.outputs.version_tag }}"
+          # Add your build commands here
+      
+      - name: Generate build info
+        id: build_info
+        run: |
+          echo "build_id=${{ github.run_id }}-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
-      - name: 🔐 Configure AWS credentials
+  # Step 3: Run tests
+  test:
+    name: Test Application
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.AUTH_TOKEN }}
+          ref: ${{ needs.version-and-tag.outputs.version_tag }}
+      
+      - name: Run tests
+        run: |
+          echo "Running tests for build ${{ needs.build.outputs.build_id }}"
+          # Add your test commands here
+
+  # Step 4: Deploy to Dev environment
+  deploy-dev:
+    name: Deploy to Dev
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    environment:
+      name: Dev
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.AUTH_TOKEN }}
+      
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: GitHubActions-TerraformApply
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
       
-      # 🚀 INITIALIZATION PHASE - Initialize and validate Terraform
-      - name: 🚀 Initialize Terraform
-        id: init
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          echo "::group::Terraform Initialization"
-          echo "🔄 Starting Terraform initialization..."
-          
-          # Check if there's an existing state file before using migrate-state
-          if terraform init; then
-            echo "✅ Terraform initialization successful"
-          else
-            # If initial init fails, try with migrate-state
-            echo "⚠️ Initial initialization failed, trying with migrate-state..."
-            if terraform init -migrate-state; then
-              echo "✅ Terraform initialization with state migration successful"
-            else
-              echo "❌ Terraform initialization failed completely"
-              exit 1
-            fi
-          fi
-          echo "::endgroup::"
-
-      - name: 🔍 Validate Terraform Configuration
-        id: validate
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          echo "::group::Terraform Validation"
-          echo "🔄 Validating Terraform configuration..."
-          
-          # Validate Terraform configuration
-          if terraform validate; then
-            echo "✅ Terraform validation successful"
-          else
-            echo "❌ Terraform validation failed"
-            exit 1
-          fi
-          echo "::endgroup::"
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
       
-      
-      
-      # 🔄 APPLY PHASE - Apply the planned changes if there are any
-      - name: 🔄 Apply Terraform Changes
-        id: apply
-        working-directory: ${{ env.TF_WORKING_DIR }}
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
         run: |
-          echo "::group::Terraform Apply"
-          echo "🔄 Applying Terraform changes..."  
-          
-          if terraform apply -auto-approve; then
-            echo "✅ Terraform apply successful"
-            echo "apply_status=success" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Terraform apply failed"
-            echo "apply_status=failure" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          echo "::endgroup::"
-
-      - name: 🔄 No Changes to Apply
-        if: steps.plan.outputs.has_changes == 'false'
-        run: |
-          echo "::group::No Changes"
-          echo "✅ No infrastructure changes to apply"
-          echo "All resources are up to date"
-          echo "::endgroup::"
-      
-      # 📢 NOTIFICATION PHASE - Notify about the application results
-      - name: 📢 Notify on Success
-        if: success()
-        run: |
-          echo "::group::Notification"
-          echo "✅ Workflow completed successfully!"
-          
-          if [[ "${{ steps.plan.outputs.has_changes }}" == "true" ]]; then
-            echo "## 🚀 Infrastructure Successfully Updated"
-            echo "The Terraform infrastructure has been successfully applied."
-          else
-            echo "## ✓ Infrastructure Up to Date"
-            echo "No changes were needed. All resources are already in the desired state."
-          fi
-          
-          echo "Completed at: $(date)"
-          echo "::endgroup::"
-          
-      - name: 📢 Notify on Failure
-        if: failure()
-        run: |
-          echo "::group::Notification"
-          echo "❌ Infrastructure deployment failed!"
-          echo "## ⚠️ Deployment Failed"
-          echo "There was an error during the infrastructure deployment process."
-          echo "Please check the logs above for detailed error information."
-          echo "Failure occurred at: $(date)"
-          echo "::endgroup::"
+          # Build a docker container and push it to ECR
+          echo "Using tag: ${{ needs.version-and-tag.outputs.version_tag }}"
+          docker build -t ${{secrets.ECR_REPO_URI}}/${{secrets.REPO_NAME}}:${{ needs.version-and-tag.outputs.version_tag }} .
+          docker push ${{secrets.ECR_REPO_URI}}/${{secrets.REPO_NAME}}:${{ needs.version-and-tag.outputs.version_tag }}
