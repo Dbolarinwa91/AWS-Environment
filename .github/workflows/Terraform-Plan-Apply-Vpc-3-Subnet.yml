@@ -155,7 +155,7 @@ jobs:
 
           # Run plan and capture output while also displaying it
           terraform plan -out=./plans/tfplan.binary -detailed-exitcode -input=false 2>&1 | tee ./plans/plan_output.txt
-          PLAN_EXIT_CODE=${PIPESTATUS[0]}
+          PLAN_EXIT_CODE=${PIPESTATUS[1]}
 
           echo "✅ Terraform plan generated with exit code: ${PLAN_EXIT_CODE}"
           echo "plan_status=success" >> $GITHUB_OUTPUT
