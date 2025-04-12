@@ -2,20 +2,14 @@
 # database.tf - RDS PostgreSQL database for SonarQube
 # ----------------------------------------
 
-# Security group for RDS
+# Security group for RDS - without cyclic references
 resource "aws_security_group" "rds_sg" {
   name        = "rds-sg-sonarqube"
   description = "Allow PostgreSQL traffic from ECS tasks"
   vpc_id      = aws_vpc.main.id
 
-  ingress {
-    description     = "PostgreSQL from ECS tasks"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.sonarqube_tasks.id]
-  }
-
+  # Empty ingress - we'll add specific rules later
+  
   egress {
     from_port   = 0
     to_port     = 0

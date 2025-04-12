@@ -76,7 +76,7 @@ variable "db_password" {
 variable "sonarqube_instance_count" {
   description = "Number of SonarQube instances to run"
   type        = number
-  default     = 3  # One per AZ for maximum availability
+  default     = 2  # Reduced from 3 to optimize costs while maintaining redundancy
 }
 
 variable "sonarqube_health_check_grace_period" {
@@ -89,7 +89,7 @@ variable "sonarqube_health_check_grace_period" {
 variable "min_capacity" {
   description = "Minimum number of instances"
   type        = number
-  default     = 3
+  default     = 2  # Reduced from 3 to optimize costs while maintaining redundancy
 }
 
 variable "max_capacity" {

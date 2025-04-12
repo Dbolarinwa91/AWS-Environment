@@ -2,20 +2,14 @@
 # efs.tf - Elastic File System configuration
 # ----------------------------------------
 
-# Security Group for EFS
+# Security Group for EFS - without cyclic references
 resource "aws_security_group" "efs_sg" {
   name        = "efs-sg-sonarqube"
   description = "Allow NFS traffic from ECS tasks to EFS"
   vpc_id      = aws_vpc.main.id
 
-  ingress {
-    description     = "NFS from ECS tasks"
-    from_port       = 2049
-    to_port         = 2049
-    protocol        = "tcp"
-    security_groups = [aws_security_group.sonarqube_tasks.id]
-  }
-
+  # Empty ingress - we'll add specific rules later
+  
   egress {
     from_port   = 0
     to_port     = 0

@@ -2,80 +2,22 @@
 # security.tf - Security Groups
 # ----------------------------------------
 
-# Security Group for ECS Tasks
-resource "aws_security_group" "ecs_tasks" {
-  name        = "ecs-tasks-sg-david"
-  description = "Allow inbound traffic to ECS tasks"
-  vpc_id      = aws_vpc.main.id
+# Removed unused ECS Tasks Security Group
 
-  ingress {
-    protocol        = "tcp"
-    from_port       = 80
-    to_port         = 80
-    cidr_blocks     = ["0.0.0.0/0"]
-  }
-
-  # Allow outbound traffic to RDS
-  egress {
-    protocol        = "tcp"
-    from_port       = 5432
-    to_port         = 5432
-    security_groups = [aws_security_group.rds_sg.id]
-  }
-
-  # Allow outbound traffic to EFS
-  egress {
-    protocol        = "tcp"
-    from_port       = 2049
-    to_port         = 2049
-    security_groups = [aws_security_group.efs_sg.id]
-  }
-
-  # Allow all other outbound traffic
-  egress {
-    protocol    = "-1"
-    from_port   = 0
-    to_port     = 0
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  
-  tags = {
-    Name = "ecs-sg-devops-David-site-project"
-  }
-  
-  depends_on = [aws_vpc.main]
-}
-
-# Security Group for SonarQube Tasks
+# Security Group for SonarQube Tasks - without cyclic references
 resource "aws_security_group" "sonarqube_tasks" {
   name        = "sonarqube-tasks-sg-david"
   description = "Allow inbound traffic to SonarQube tasks"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    protocol        = "tcp"
-    from_port       = 9000
-    to_port         = 9000
-    cidr_blocks     = ["0.0.0.0/0"]
+    protocol    = "tcp"
+    from_port   = 9000
+    to_port     = 9000
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Allow outbound traffic to RDS
-  egress {
-    protocol        = "tcp"
-    from_port       = 5432
-    to_port         = 5432
-    security_groups = [aws_security_group.rds_sg.id]
-  }
-
-  # Allow outbound traffic to EFS
-  egress {
-    protocol        = "tcp"
-    from_port       = 2049
-    to_port         = 2049
-    security_groups = [aws_security_group.efs_sg.id]
-  }
-
-  # Allow all other outbound traffic
+  # Allow all outbound traffic - we'll add specific rules later
   egress {
     protocol    = "-1"
     from_port   = 0

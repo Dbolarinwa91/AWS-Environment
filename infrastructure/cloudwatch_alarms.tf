@@ -13,7 +13,7 @@ resource "aws_cloudwatch_metric_alarm" "rds_cpu_high" {
   statistic           = "Average"
   threshold           = "85"
   alarm_description   = "This metric monitors RDS CPU utilization"
-  alarm_actions       = []  # Add SNS topic ARN for notifications
+  alarm_actions       = []  # TODO: Add SNS topic ARN for notifications to make these alarms useful
   
   dimensions = {
     DBInstanceIdentifier = aws_db_instance.sonarqube.id
@@ -111,5 +111,13 @@ resource "aws_cloudwatch_metric_alarm" "efs_burst_credits_low" {
 
   tags = {
     Name = "sonarqube-efs-credits-alarm"
+  }
+}
+resource "aws_cloudwatch_log_group" "sonarqube_logs" {
+  name              = "/ecs/sonarqube-container"
+  retention_in_days = 30
+  
+  tags = {
+    Name = "sonarqube-logs-devops-David-site-project"
   }
 }
