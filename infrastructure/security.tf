@@ -17,6 +17,7 @@ resource "aws_security_group" "sonarqube_tasks" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+ 
   # Allow all outbound traffic - we'll add specific rules later
   egress {
     protocol    = "-1"
@@ -28,7 +29,6 @@ resource "aws_security_group" "sonarqube_tasks" {
   tags = {
     Name = "sonarqube-sg-devops-David-site-project"
   }
-  
   depends_on = [aws_vpc.main]
 }
 

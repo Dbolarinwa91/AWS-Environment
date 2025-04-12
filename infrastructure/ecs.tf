@@ -29,22 +29,9 @@ resource "aws_ecs_task_definition" "sonarqube" {
   cpu                      = "1024"
   memory                   = "2048"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
-  task_role_arn            = aws_iam_role.ecs_task_role.arn  # For EFS access
+  task_role_arn            = aws_iam_role.ecs_task_role.arn
 
-  # Configure EFS volume
-  volume {
-    name = "sonarqube-data"
-    
-    efs_volume_configuration {
-      file_system_id          = aws_efs_file_system.sonarqube_data.id
-      transit_encryption      = "ENABLED"
-      transit_encryption_port = 2999
-      authorization_config {
-        access_point_id = aws_efs_access_point.sonarqube_data_ap.id
-        iam             = "ENABLED"
-      }
-    }
-  }
+  # Remove the EFS volume configuration since we're using RDS now
   
   container_definitions = jsonencode([{
     name      = "sonarqube-container"
@@ -72,7 +59,20 @@ resource "aws_ecs_task_definition" "sonarqube" {
       },
       {
         name  = "SONAR_JDBC_URL"
-        value = "jdbc:postgresql://${aws_db_instance.sonarqube.endpoint}/${var.db_name}"
+        value = "jdbc:postgresql://${aws_db_instance.sonarqube.endpoint}/${var.db_name}?sslmode=require"
+      },
+      # Add recommended PostgreSQL parameters
+      {
+        name  = "SONAR_JDBC_MAXACTIVE"
+        value = "60"
+      },
+      {
+        name  = "SONAR_JDBC_MINIDLE"
+        value = "10"
+      },
+      {
+        name  = "SONAR_JDBC_MAXIDLE"
+        value = "20"
       }
     ],
     
@@ -83,23 +83,7 @@ resource "aws_ecs_task_definition" "sonarqube" {
       }
     ],
     
-    mountPoints = [
-      {
-        sourceVolume  = "sonarqube-data",
-        containerPath = "/opt/sonarqube/data",
-        readOnly      = false
-      },
-      {
-        sourceVolume  = "sonarqube-data",
-        containerPath = "/opt/sonarqube/extensions",
-        readOnly      = false
-      },
-      {
-        sourceVolume  = "sonarqube-data",
-        containerPath = "/opt/sonarqube/logs",
-        readOnly      = false
-      }
-    ],
+    # Remove mount points since we're not using EFS anymore
     
     logConfiguration = {
       logDriver = "awslogs"
@@ -110,11 +94,28 @@ resource "aws_ecs_task_definition" "sonarqube" {
       }
     },
     
-    ulimits = [{
-      name      = "nofile"
-      softLimit = 65536
-      hardLimit = 65536
-    }]
+    ulimits = [
+      {
+        name      = "nofile"
+        softLimit = 65536
+        hardLimit = 65536
+      },
+      # Add recommended SonarQube ulimits for production
+      {
+        name      = "nproc"
+        softLimit = 8192
+        hardLimit = 8192
+      }
+    ],
+    
+    # Add healthcheck for container
+    healthCheck = {
+      command     = ["CMD-SHELL", "curl -f http://localhost:9000/api/system/status || exit 1"]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 120  # SonarQube can take time to start, especially first time
+    }
   }])
   
   tags = {
@@ -125,7 +126,7 @@ resource "aws_ecs_task_definition" "sonarqube" {
     aws_iam_role.ecs_task_execution_role,
     aws_iam_role.ecs_task_role,
     aws_cloudwatch_log_group.sonarqube_logs,
-    aws_efs_access_point.sonarqube_data_ap
+    aws_db_instance.sonarqube
   ]
 }
 
@@ -137,7 +138,7 @@ resource "aws_ecs_service" "sonarqube" {
   desired_count   = var.sonarqube_instance_count
   launch_type     = "FARGATE"
   
-  # Platform version must be 1.4.0 or higher for EFS
+  # We can still use 1.4.0 for consistency, but EFS requirement is no longer needed
   platform_version = "1.4.0"
   
   # Important for handling health checks properly
@@ -191,10 +192,8 @@ resource "aws_ecs_service" "sonarqube" {
     aws_subnet.subnet_2,
     aws_subnet.subnet_3,
     aws_lb_target_group.sonarqube_tg,
-    aws_db_instance.sonarqube,
-    aws_efs_mount_target.sonarqube_mount_target_1,
-    aws_efs_mount_target.sonarqube_mount_target_2,
-    aws_efs_mount_target.sonarqube_mount_target_3
+    aws_db_instance.sonarqube
+    # Removed EFS mount target dependencies since we're using RDS now
   ]
   
   tags = {

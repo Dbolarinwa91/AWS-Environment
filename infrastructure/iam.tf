@@ -100,3 +100,32 @@ resource "aws_iam_role_policy_attachment" "ecs_task_role_efs_ssm_policy" {
   policy_arn = aws_iam_policy.ecs_task_efs_ssm_access.arn
   depends_on = [aws_iam_role.ecs_task_role, aws_iam_policy.ecs_task_efs_ssm_access]
 }
+
+# IAM role for RDS enhanced monitoring
+
+resource "aws_iam_role" "rds_monitoring_role" {
+  name = "rds-monitoring-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "monitoring.rds.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name = "rds-monitoring-role-sonarqube"
+  }
+}
+
+# Attach the RDS monitoring policy to the role
+resource "aws_iam_role_policy_attachment" "rds_monitoring_role_policy" {
+  role       = aws_iam_role.rds_monitoring_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
+}

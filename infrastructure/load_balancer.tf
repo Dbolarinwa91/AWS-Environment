@@ -26,7 +26,7 @@ resource "aws_lb" "app_lb" {
   ]
 }
 
-# Main app target group removed
+
 
 # Target group for SonarQube with improved health checks
 resource "aws_lb_target_group" "sonarqube_tg" {
@@ -40,8 +40,8 @@ resource "aws_lb_target_group" "sonarqube_tg" {
   health_check {
     path                = "/"
     port                = "traffic-port"
-    healthy_threshold   = 2
-    unhealthy_threshold = 3
+    healthy_threshold   = 3
+    unhealthy_threshold = 2
     timeout             = 5
     interval            = 15
     matcher             = "200,302,303,401"  # 401 is included because SonarQube might require auth
@@ -53,7 +53,7 @@ resource "aws_lb_target_group" "sonarqube_tg" {
   # Enable stickiness for better user experience
   stickiness {
     type            = "lb_cookie"
-    cookie_duration = 86400  # 1 day
+    cookie_duration = 259200  # 1 day
     enabled         = true
   }
   
@@ -68,29 +68,7 @@ resource "aws_lb_target_group" "sonarqube_tg" {
   }
 }
 
-# ALB listener on port 80 - redirecting to SonarQube
-resource "aws_lb_listener" "front_end" {
-  load_balancer_arn = aws_lb.app_lb.arn
-  port              = 80
-  protocol          = "HTTP"
-  
-  default_action {
-    type = "redirect"
-    redirect {
-      port        = "9000"
-      protocol    = "HTTP"
-      status_code = "HTTP_301"
-    }
-  }
-  
-  depends_on = [
-    aws_lb.app_lb
-  ]
-  
-  lifecycle {
-    create_before_destroy = true
-  }
-}
+
 
 # ALB listener for SonarQube
 resource "aws_lb_listener" "sonarqube" {

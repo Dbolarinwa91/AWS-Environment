@@ -11,7 +11,7 @@ resource "aws_cloudwatch_metric_alarm" "rds_cpu_high" {
   namespace           = "AWS/RDS"
   period              = "60"
   statistic           = "Average"
-  threshold           = "85"
+  threshold           = "80"  # 80% CPU utilization threshold
   alarm_description   = "This metric monitors RDS CPU utilization"
   alarm_actions       = []  # TODO: Add SNS topic ARN for notifications to make these alarms useful
   

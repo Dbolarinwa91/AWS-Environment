@@ -12,7 +12,7 @@ resource "aws_vpc" "main" {
 
 resource "aws_subnet" "subnet_1" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.0.0/20"
+  cidr_block              = "10.0.0.0/20" // this should be parsed as a variable
   availability_zone       = "us-east-1b"
   map_public_ip_on_launch = true
   tags = {
@@ -53,17 +53,15 @@ resource "aws_internet_gateway" "internet_gw" {
 
 resource "aws_route_table" "route_table" {
   vpc_id = aws_vpc.main.id
-
+    tags = {
+        Name = "route_table-devops-David-site-project"
+    }
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.internet_gw.id
   }
+ 
 
-  route {
-    cidr_block = "10.0.0.0/16"
-    gateway_id = "local"
-  }
-  
   depends_on = [aws_internet_gateway.internet_gw]
 }
 

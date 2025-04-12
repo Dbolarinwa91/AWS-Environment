@@ -33,11 +33,7 @@ variable "efs_lifecycle_policy" {
   default     = "AFTER_30_DAYS"  # Move files to infrequent access storage after 30 days
 }
 
-variable "efs_transition_to_ia" {
-  description = "EFS transition to IA storage class"
-  type        = string
-  default     = "AFTER_30_DAYS"
-}
+
 
 # Database configuration
 variable "db_instance_class" {
@@ -89,7 +85,7 @@ variable "sonarqube_health_check_grace_period" {
 variable "min_capacity" {
   description = "Minimum number of instances"
   type        = number
-  default     = 2  # Reduced from 3 to optimize costs while maintaining redundancy
+  default     = 3  # Reduced from 3 to optimize costs while maintaining redundancy
 }
 
 variable "max_capacity" {
