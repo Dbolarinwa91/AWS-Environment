@@ -92,27 +92,7 @@ resource "aws_cloudwatch_metric_alarm" "alb_high_5xx" {
   }
 }
 
-# Alarm for EFS burst credit balance low
-resource "aws_cloudwatch_metric_alarm" "efs_burst_credits_low" {
-  alarm_name          = "sonarqube-efs-burst-credits-low"
-  comparison_operator = "LessThanThreshold"
-  evaluation_periods  = "3"
-  metric_name         = "BurstCreditBalance"
-  namespace           = "AWS/EFS"
-  period              = "300"  # 5 minutes
-  statistic           = "Average"
-  threshold           = "1000000000000"  # 1 trillion (this is a very large value to ensure early warning)
-  alarm_description   = "This metric monitors EFS burst credit balance"
-  alarm_actions       = []  # Add SNS topic ARN for notifications
-  
-  dimensions = {
-    FileSystemId = aws_efs_file_system.sonarqube_data.id
-  }
 
-  tags = {
-    Name = "sonarqube-efs-credits-alarm"
-  }
-}
 resource "aws_cloudwatch_log_group" "sonarqube_logs" {
   name              = "/ecs/sonarqube-container"
   retention_in_days = 30

@@ -40,7 +40,7 @@ resource "aws_db_subnet_group" "sonarqube" {
 # KMS key for database encryption
 resource "aws_kms_key" "rds_encryption_key" {
   description             = "KMS key for RDS encryption"
-  deletion_window_in_days = 5
+  deletion_window_in_days = 7
   enable_key_rotation     = true
 
   tags = {

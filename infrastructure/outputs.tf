@@ -53,20 +53,6 @@ output "sonarqube_security_group" {
   value       = aws_security_group.sonarqube_tasks.id
 }
 
-output "efs_id" {
-  description = "The ID of the EFS file system"
-  value       = aws_efs_file_system.sonarqube_data.id
-}
-
-output "efs_dns_name" {
-  description = "The DNS name of the EFS file system"
-  value       = aws_efs_file_system.sonarqube_data.dns_name
-}
-
-output "efs_access_point_id" {
-  description = "The ID of the EFS access point"
-  value       = aws_efs_access_point.sonarqube_data_ap.id
-}
 
 # Database outputs
 output "db_endpoint" {
