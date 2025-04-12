@@ -174,11 +174,7 @@ resource "aws_ecs_service" "sonarqube" {
     rollback = true
   }
   
-  # For HA, we need to ensure instances are properly spread
-  ordered_placement_strategy {
-    type  = "spread"
-    field = "attribute:ecs.availability-zone"
-  }
+ 
   
   # We don't use lifecycle ignore_changes for desired_count here as we want to enforce
   # the specified instance count for HA, letting autoscaling handle additional capacity needs
