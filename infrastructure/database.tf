@@ -47,7 +47,7 @@ resource "aws_kms_key" "rds_encryption_key" {
 resource "aws_db_instance" "sonarqube" {
   identifier             = "sonarqube-db"
   engine                 = "postgres"
-  engine_version         = "13.4"
+  engine_version         = "17.4"
   instance_class         = var.db_instance_class
   allocated_storage      = var.db_allocated_storage
   max_allocated_storage  = 100  # Allow storage autoscaling up to 100GB
