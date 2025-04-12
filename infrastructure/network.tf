@@ -1,4 +1,6 @@
-# network.tf - Contains VPC, subnets, internet gateway, and routing configuration
+# ----------------------------------------
+# network.tf - VPC, Subnets, Internet Gateway, Route Tables
+# ----------------------------------------
 
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"

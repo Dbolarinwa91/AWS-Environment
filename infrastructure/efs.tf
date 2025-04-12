@@ -1,4 +1,6 @@
-# efs.tf - Contains EFS resources for SonarQube persistent storage
+# ----------------------------------------
+# efs.tf - Elastic File System configuration
+# ----------------------------------------
 
 # Security Group for EFS
 resource "aws_security_group" "efs_sg" {

@@ -1,4 +1,6 @@
-# ecs.tf - Contains ECS Cluster, Task Definition, and Service
+# ----------------------------------------
+# ecs.tf - ECS resources configuration
+# ----------------------------------------
 
 #============================================
 # ECS Cluster
@@ -55,7 +57,9 @@ resource "aws_ecs_task_definition" "app" {
   ]
 }
 
-  # Task Definition for SonarQube with EFS volume
+# Main app service has been removed
+
+# Task Definition for SonarQube with EFS volume
 resource "aws_ecs_task_definition" "sonarqube" {
   family                   = "sonarqube-task"
   network_mode             = "awsvpc"
@@ -101,8 +105,19 @@ resource "aws_ecs_task_definition" "sonarqube" {
         value = "true"
       },
       {
+        name  = "SONAR_JDBC_USERNAME"
+        value = "${var.db_username}"
+      },
+      {
         name  = "SONAR_JDBC_URL"
-        value = "jdbc:h2:/opt/sonarqube/data/h2db/sonarqube"
+        value = "jdbc:postgresql://${aws_db_instance.sonarqube.endpoint}/${var.db_name}"
+      }
+    ],
+    
+    secrets = [
+      {
+        name      = "SONAR_JDBC_PASSWORD"
+        valueFrom = aws_ssm_parameter.db_password.arn
       }
     ],
     
@@ -152,15 +167,27 @@ resource "aws_ecs_task_definition" "sonarqube" {
   ]
 }
 
-# Main app service has been removed
-
-# ECS Service for SonarQube
+# ECS Service for SonarQube with high availability
 resource "aws_ecs_service" "sonarqube" {
   name            = "sonarqube-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.sonarqube.arn
-  desired_count   = 2  # Running two instances for better availability
+  desired_count   = var.sonarqube_instance_count
   launch_type     = "FARGATE"
+  
+  # Platform version must be 1.4.0 or higher for EFS
+  platform_version = "1.4.0"
+  
+  # Important for handling health checks properly
+  health_check_grace_period_seconds = var.sonarqube_health_check_grace_period
+  
+  # Deployment configuration for minimum healthy percent
+  deployment_controller {
+    type = "ECS"
+  }
+  
+  deployment_maximum_percent         = 200
+  deployment_minimum_healthy_percent = 100
   
   network_configuration {
     security_groups  = [aws_security_group.sonarqube_tasks.id]
@@ -178,6 +205,21 @@ resource "aws_ecs_service" "sonarqube" {
     container_port   = 9000
   }
   
+  # Circuit breaker to detect failures faster
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+  
+  # For HA, we need to ensure instances are properly spread
+  ordered_placement_strategy {
+    type  = "spread"
+    field = "attribute:ecs.availability-zone"
+  }
+  
+  # We don't use lifecycle ignore_changes for desired_count here as we want to enforce
+  # the specified instance count for HA, letting autoscaling handle additional capacity needs
+  
   depends_on = [
     aws_lb_listener.sonarqube,
     aws_ecs_cluster.main,
@@ -186,7 +228,11 @@ resource "aws_ecs_service" "sonarqube" {
     aws_subnet.subnet_1,
     aws_subnet.subnet_2,
     aws_subnet.subnet_3,
-    aws_lb_target_group.sonarqube_tg
+    aws_lb_target_group.sonarqube_tg,
+    aws_db_instance.sonarqube,
+    aws_efs_mount_target.sonarqube_mount_target_1,
+    aws_efs_mount_target.sonarqube_mount_target_2,
+    aws_efs_mount_target.sonarqube_mount_target_3
   ]
   
   tags = {

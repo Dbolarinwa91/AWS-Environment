@@ -1,4 +1,6 @@
-# load_balancer.tf - Contains Application Load Balancer, Target Group, and Listener
+# ----------------------------------------
+# load_balancer.tf - Application Load Balancer
+# ----------------------------------------
 
 # Application Load Balancer for the ECS service
 resource "aws_lb" "app_lb" {
@@ -26,7 +28,7 @@ resource "aws_lb" "app_lb" {
 
 # Main app target group removed
 
-# Target group for SonarQube
+# Target group for SonarQube with improved health checks
 resource "aws_lb_target_group" "sonarqube_tg" {
   name        = "sonarqube-tg"
   port        = 9000
@@ -34,14 +36,25 @@ resource "aws_lb_target_group" "sonarqube_tg" {
   vpc_id      = aws_vpc.main.id
   target_type = "ip"
   
+  # Improved health check configuration
   health_check {
     path                = "/"
     port                = "traffic-port"
-    healthy_threshold   = 3
+    healthy_threshold   = 2
     unhealthy_threshold = 3
-    timeout             = 30
-    interval            = 60
-    matcher             = "200,302,303"
+    timeout             = 5
+    interval            = 15
+    matcher             = "200,302,303,401"  # 401 is included because SonarQube might require auth
+  }
+  
+  # Allow time for connections to drain before deregistering
+  deregistration_delay = 60
+  
+  # Enable stickiness for better user experience
+  stickiness {
+    type            = "lb_cookie"
+    cookie_duration = 86400  # 1 day
+    enabled         = true
   }
   
   tags = {

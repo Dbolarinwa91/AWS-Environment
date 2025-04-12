@@ -1,4 +1,6 @@
-# iam.tf - Contains IAM roles and policies for ECS task execution
+# ----------------------------------------
+# iam.tf - IAM roles and policies
+# ----------------------------------------
 
 # ECS Task Execution Role - Used by ECS to pull images, publish logs, etc.
 resource "aws_iam_role" "ecs_task_execution_role" {
@@ -51,10 +53,10 @@ resource "aws_iam_role" "ecs_task_role" {
   }
 }
 
-# Policy for EFS access
-resource "aws_iam_policy" "ecs_task_efs_access" {
-  name        = "ecs-task-efs-access-policy"
-  description = "Allow ECS tasks to access EFS file systems"
+# Policy for EFS access and SSM Parameter access
+resource "aws_iam_policy" "ecs_task_efs_ssm_access" {
+  name        = "ecs-task-efs-ssm-access-policy"
+  description = "Allow ECS tasks to access EFS file systems and SSM parameters"
   
   policy = jsonencode({
     Version = "2012-10-17"
@@ -68,14 +70,33 @@ resource "aws_iam_policy" "ecs_task_efs_access" {
           "elasticfilesystem:DescribeMountTargets"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameters",
+          "ssm:GetParameter"
+        ]
+        Resource = [
+          "arn:aws:ssm:*:*:parameter/sonarqube/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt"
+        ]
+        Resource = [
+          aws_kms_key.rds_encryption_key.arn
+        ]
       }
     ]
   })
 }
 
-# Attach EFS access policy to task role
-resource "aws_iam_role_policy_attachment" "ecs_task_role_efs_policy" {
+# Attach EFS and SSM access policy to task role
+resource "aws_iam_role_policy_attachment" "ecs_task_role_efs_ssm_policy" {
   role       = aws_iam_role.ecs_task_role.name
-  policy_arn = aws_iam_policy.ecs_task_efs_access.arn
-  depends_on = [aws_iam_role.ecs_task_role, aws_iam_policy.ecs_task_efs_access]
+  policy_arn = aws_iam_policy.ecs_task_efs_ssm_access.arn
+  depends_on = [aws_iam_role.ecs_task_role, aws_iam_policy.ecs_task_efs_ssm_access]
 }

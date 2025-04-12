@@ -1,4 +1,6 @@
-# outputs.tf - Contains output values for important resources
+# ----------------------------------------
+# outputs.tf - Output values
+# ----------------------------------------
 
 output "vpc_id" {
   description = "The ID of the VPC"
@@ -20,21 +22,6 @@ output "ecs_cluster_name" {
   value       = aws_ecs_cluster.main.name
 }
 
-output "efs_id" {
-  description = "The ID of the EFS file system"
-  value       = aws_efs_file_system.sonarqube_data.id
-}
-
-output "efs_dns_name" {
-  description = "The DNS name of the EFS file system"
-  value       = aws_efs_file_system.sonarqube_data.dns_name
-}
-
-output "efs_access_point_id" {
-  description = "The ID of the EFS access point"
-  value       = aws_efs_access_point.sonarqube_data_ap.id
-}
-
 output "security_group_lb" {
   description = "The ID of the security group for the load balancer"
   value       = aws_security_group.lb_sg.id
@@ -42,7 +29,7 @@ output "security_group_lb" {
 
 output "security_group_ecs" {
   description = "The ID of the security group for the ECS tasks"
-  value       = aws_security_group.ecs_tasks.id
+  value       = aws_security_group.sonarqube_tasks.id
 }
 
 # SonarQube specific outputs
@@ -64,4 +51,30 @@ output "sonarqube_task_definition_arn" {
 output "sonarqube_security_group" {
   description = "The ID of the security group for the SonarQube tasks"
   value       = aws_security_group.sonarqube_tasks.id
+}
+
+output "efs_id" {
+  description = "The ID of the EFS file system"
+  value       = aws_efs_file_system.sonarqube_data.id
+}
+
+output "efs_dns_name" {
+  description = "The DNS name of the EFS file system"
+  value       = aws_efs_file_system.sonarqube_data.dns_name
+}
+
+output "efs_access_point_id" {
+  description = "The ID of the EFS access point"
+  value       = aws_efs_access_point.sonarqube_data_ap.id
+}
+
+# Database outputs
+output "db_endpoint" {
+  description = "The endpoint of the database"
+  value       = aws_db_instance.sonarqube.endpoint
+}
+
+output "db_instance_id" {
+  description = "The ID of the RDS instance"
+  value       = aws_db_instance.sonarqube.id
 }

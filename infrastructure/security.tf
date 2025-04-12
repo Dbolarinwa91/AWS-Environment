@@ -1,4 +1,6 @@
-# security.tf - Contains security groups for ECS tasks and load balancer
+# ----------------------------------------
+# security.tf - Security Groups
+# ----------------------------------------
 
 # Security Group for ECS Tasks
 resource "aws_security_group" "ecs_tasks" {
@@ -11,6 +13,14 @@ resource "aws_security_group" "ecs_tasks" {
     from_port       = 80
     to_port         = 80
     cidr_blocks     = ["0.0.0.0/0"]
+  }
+
+  # Allow outbound traffic to RDS
+  egress {
+    protocol        = "tcp"
+    from_port       = 5432
+    to_port         = 5432
+    security_groups = [aws_security_group.rds_sg.id]
   }
 
   # Allow outbound traffic to EFS
@@ -49,6 +59,23 @@ resource "aws_security_group" "sonarqube_tasks" {
     cidr_blocks     = ["0.0.0.0/0"]
   }
 
+  # Allow outbound traffic to RDS
+  egress {
+    protocol        = "tcp"
+    from_port       = 5432
+    to_port         = 5432
+    security_groups = [aws_security_group.rds_sg.id]
+  }
+
+  # Allow outbound traffic to EFS
+  egress {
+    protocol        = "tcp"
+    from_port       = 2049
+    to_port         = 2049
+    security_groups = [aws_security_group.efs_sg.id]
+  }
+
+  # Allow all other outbound traffic
   egress {
     protocol    = "-1"
     from_port   = 0
