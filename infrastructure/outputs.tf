@@ -20,14 +20,19 @@ output "ecs_cluster_name" {
   value       = aws_ecs_cluster.main.name
 }
 
-output "ecs_service_name" {
-  description = "The name of the ECS service"
-  value       = aws_ecs_service.app.name
+output "efs_id" {
+  description = "The ID of the EFS file system"
+  value       = aws_efs_file_system.sonarqube_data.id
 }
 
-output "task_definition_arn" {
-  description = "The ARN of the task definition"
-  value       = aws_ecs_task_definition.app.arn
+output "efs_dns_name" {
+  description = "The DNS name of the EFS file system"
+  value       = aws_efs_file_system.sonarqube_data.dns_name
+}
+
+output "efs_access_point_id" {
+  description = "The ID of the EFS access point"
+  value       = aws_efs_access_point.sonarqube_data_ap.id
 }
 
 output "security_group_lb" {

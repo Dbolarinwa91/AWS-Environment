@@ -55,7 +55,7 @@ resource "aws_ecs_task_definition" "app" {
   ]
 }
 
-# Task Definition for SonarQube
+  # Task Definition for SonarQube with EFS volume
 resource "aws_ecs_task_definition" "sonarqube" {
   family                   = "sonarqube-task"
   network_mode             = "awsvpc"
@@ -63,6 +63,22 @@ resource "aws_ecs_task_definition" "sonarqube" {
   cpu                      = "1024"
   memory                   = "2048"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+  task_role_arn            = aws_iam_role.ecs_task_role.arn  # For EFS access
+
+  # Configure EFS volume
+  volume {
+    name = "sonarqube-data"
+    
+    efs_volume_configuration {
+      file_system_id          = aws_efs_file_system.sonarqube_data.id
+      transit_encryption      = "ENABLED"
+      transit_encryption_port = 2999
+      authorization_config {
+        access_point_id = aws_efs_access_point.sonarqube_data_ap.id
+        iam             = "ENABLED"
+      }
+    }
+  }
   
   container_definitions = jsonencode([{
     name      = "sonarqube-container"
@@ -83,6 +99,28 @@ resource "aws_ecs_task_definition" "sonarqube" {
       {
         name  = "SONAR_ES_BOOTSTRAP_CHECKS_DISABLE"
         value = "true"
+      },
+      {
+        name  = "SONAR_JDBC_URL"
+        value = "jdbc:h2:/opt/sonarqube/data/h2db/sonarqube"
+      }
+    ],
+    
+    mountPoints = [
+      {
+        sourceVolume  = "sonarqube-data",
+        containerPath = "/opt/sonarqube/data",
+        readOnly      = false
+      },
+      {
+        sourceVolume  = "sonarqube-data",
+        containerPath = "/opt/sonarqube/extensions",
+        readOnly      = false
+      },
+      {
+        sourceVolume  = "sonarqube-data",
+        containerPath = "/opt/sonarqube/logs",
+        readOnly      = false
       }
     ],
     
@@ -90,7 +128,7 @@ resource "aws_ecs_task_definition" "sonarqube" {
       logDriver = "awslogs"
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.sonarqube_logs.name
-        "awslogs-region"        = "us-east-1"
+        "awslogs-region"        = var.aws_region
         "awslogs-stream-prefix" = "ecs"
       }
     },
@@ -108,62 +146,20 @@ resource "aws_ecs_task_definition" "sonarqube" {
   
   depends_on = [
     aws_iam_role.ecs_task_execution_role,
-    aws_cloudwatch_log_group.sonarqube_logs
+    aws_iam_role.ecs_task_role,
+    aws_cloudwatch_log_group.sonarqube_logs,
+    aws_efs_access_point.sonarqube_data_ap
   ]
 }
 
-# ECS Service for main app
-resource "aws_ecs_service" "app" {
-  name            = "david-app-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = 3  # One per subnet/AZ
-  launch_type     = "FARGATE"
-  
-  network_configuration {
-    security_groups  = [aws_security_group.ecs_tasks.id]
-    subnets          = [
-      aws_subnet.subnet_1.id, 
-      aws_subnet.subnet_2.id, 
-      aws_subnet.subnet_3.id
-    ]
-    assign_public_ip = true  # Since you're using public subnets
-  }
-  
-  load_balancer {
-    target_group_arn = aws_lb_target_group.app_tg.arn
-    container_name   = "david-app-container"
-    container_port   = 80
-  }
-  
-  # Ignore changes to desired count because we'll be using auto scaling
-  lifecycle {
-    ignore_changes = [desired_count]
-    create_before_destroy = true
-  }
-  
-  depends_on = [
-    aws_lb_listener.front_end,
-    aws_ecs_cluster.main,
-    aws_ecs_task_definition.app,
-    aws_security_group.ecs_tasks,
-    aws_subnet.subnet_1,
-    aws_subnet.subnet_2,
-    aws_subnet.subnet_3,
-    aws_lb_target_group.app_tg
-  ]
-  
-  tags = {
-    Name = "ecs-service-devops-David-site-project"
-  }
-}
+# Main app service has been removed
 
 # ECS Service for SonarQube
 resource "aws_ecs_service" "sonarqube" {
   name            = "sonarqube-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.sonarqube.arn
-  desired_count   = 1  # SonarQube usually runs as a single instance
+  desired_count   = 2  # Running two instances for better availability
   launch_type     = "FARGATE"
   
   network_configuration {

@@ -24,35 +24,7 @@ resource "aws_lb" "app_lb" {
   ]
 }
 
-# Target group for the ALB
-resource "aws_lb_target_group" "app_tg" {
-  name        = "david-app-tg"
-  port        = 80
-  protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
-  target_type = "ip"
-  
-  health_check {
-    path                = "/"
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    timeout             = 30
-    interval            = 60
-    matcher             = "200,301,302"
-  }
-  
-  tags = {
-    Name = "tg-devops-David-site-project"
-  }
-  
-  depends_on = [aws_vpc.main]
-  
-  # This ensures the target group is destroyed before the VPC
-  lifecycle {
-    create_before_destroy = true
-  }
-}
+# Main app target group removed
 
 # Target group for SonarQube
 resource "aws_lb_target_group" "sonarqube_tg" {
@@ -83,20 +55,23 @@ resource "aws_lb_target_group" "sonarqube_tg" {
   }
 }
 
-# ALB listener for main app
+# ALB listener on port 80 - redirecting to SonarQube
 resource "aws_lb_listener" "front_end" {
   load_balancer_arn = aws_lb.app_lb.arn
   port              = 80
   protocol          = "HTTP"
   
   default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.app_tg.arn
+    type = "redirect"
+    redirect {
+      port        = "9000"
+      protocol    = "HTTP"
+      status_code = "HTTP_301"
+    }
   }
   
   depends_on = [
-    aws_lb.app_lb,
-    aws_lb_target_group.app_tg
+    aws_lb.app_lb
   ]
   
   lifecycle {

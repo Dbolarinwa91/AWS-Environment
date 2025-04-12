@@ -13,6 +13,15 @@ resource "aws_security_group" "ecs_tasks" {
     cidr_blocks     = ["0.0.0.0/0"]
   }
 
+  # Allow outbound traffic to EFS
+  egress {
+    protocol        = "tcp"
+    from_port       = 2049
+    to_port         = 2049
+    security_groups = [aws_security_group.efs_sg.id]
+  }
+
+  # Allow all other outbound traffic
   egress {
     protocol    = "-1"
     from_port   = 0
