@@ -29,3 +29,10 @@ variable "efs_transition_to_ia" {
   type        = string
   default     = "AFTER_30_DAYS"
 }
+
+variable "aws_region" {
+  description = "AWS region for the infrastructure"
+  type        = string
+  default     = "us-east-1"  # Change to your desired region
+  
+}

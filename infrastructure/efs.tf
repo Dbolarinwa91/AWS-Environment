@@ -83,3 +83,4 @@ resource "aws_efs_access_point" "sonarqube_data_ap" {
   tags = {
     Name = "sonarqube-data-access-point"
   }
+}
