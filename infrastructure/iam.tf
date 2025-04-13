@@ -3,6 +3,9 @@
 # ----------------------------------------
 
 # ECS Task Execution Role - Used by ECS to pull images, publish logs, etc.
+# Get current AWS account ID
+data "aws_caller_identity" "current" {}
+
 resource "aws_iam_role" "ecs_task_execution_role" {
   name = "ecs-task-execution-role-david"
   
@@ -129,4 +132,39 @@ resource "aws_iam_role_policy_attachment" "rds_monitoring_role_policy" {
   role       = aws_iam_role.rds_monitoring_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
 }
+# Create a policy for SSM Parameter access for the execution role
+resource "aws_iam_policy" "ecs_execution_ssm_access" {
+  name        = "ecs-execution-ssm-access-policy"
+  description = "Allow ECS task execution role to access SSM parameters"
+  
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameters",
+          "ssm:GetParameter"
+        ]
+        Resource = [
+          "arn:aws:ssm:*:*:parameter/sonarqube/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt"
+        ]
+        Resource = [
+          aws_kms_key.rds_encryption_key.arn
+        ]
+      }
+    ]
+  })
+}
 
+# Attach the SSM access policy to the task execution role
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_ssm_policy" {
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = aws_iam_policy.ecs_execution_ssm_access.arn
+}
