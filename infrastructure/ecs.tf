@@ -27,15 +27,50 @@ resource "aws_ecs_task_definition" "sonarqube" {
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = "1024"
-  memory                   = "2048"
+  memory                   = "3072"  # Increased to 3GB as recommended
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
 
-  # Remove the EFS volume configuration since we're using RDS now
+  # Add EFS volume configuration
+  volume {
+    name = "sonarqube_data"
+    efs_volume_configuration {
+      file_system_id          = aws_efs_file_system.sonarqube.id
+      transit_encryption      = "ENABLED"
+      authorization_config {
+        access_point_id = aws_efs_access_point.sonarqube_data.id
+        iam             = "ENABLED"
+      }
+    }
+  }
+  
+  volume {
+    name = "sonarqube_logs"
+    efs_volume_configuration {
+      file_system_id          = aws_efs_file_system.sonarqube.id
+      transit_encryption      = "ENABLED"
+      authorization_config {
+        access_point_id = aws_efs_access_point.sonarqube_logs.id
+        iam             = "ENABLED"
+      }
+    }
+  }
+  
+  volume {
+    name = "sonarqube_extensions"
+    efs_volume_configuration {
+      file_system_id          = aws_efs_file_system.sonarqube.id
+      transit_encryption      = "ENABLED"
+      authorization_config {
+        access_point_id = aws_efs_access_point.sonarqube_extensions.id
+        iam             = "ENABLED"
+      }
+    }
+  }
   
   container_definitions = jsonencode([{
     name      = "sonarqube-container"
-    image     = "sonarqube:latest"
+    image     = "sonarqube:lts-community"  # Using LTS version for stability
     essential = true
     
     portMappings = [{
@@ -83,7 +118,24 @@ resource "aws_ecs_task_definition" "sonarqube" {
       }
     ],
     
-    # Remove mount points since we're not using EFS anymore
+    # Add mount points for EFS volumes
+    mountPoints = [
+      {
+        sourceVolume  = "sonarqube_data"
+        containerPath = "/opt/sonarqube/data"
+        readOnly      = false
+      },
+      {
+        sourceVolume  = "sonarqube_logs"
+        containerPath = "/opt/sonarqube/logs"
+        readOnly      = false
+      },
+      {
+        sourceVolume  = "sonarqube_extensions"
+        containerPath = "/opt/sonarqube/extensions"
+        readOnly      = false
+      }
+    ],
     
     logConfiguration = {
       logDriver = "awslogs"
@@ -108,19 +160,20 @@ resource "aws_ecs_task_definition" "sonarqube" {
       }
     ],
     
-    # Add healthcheck for container
+    # Improve healthcheck configuration
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:9000/api/system/status || exit 1"]
+      command     = ["CMD", "curl", "-f", "http://localhost:9000/api/system/status", "||", "exit", "1"]
       interval    = 30
       timeout     = 5
       retries     = 3
-      startPeriod = 120  # SonarQube can take time to start, especially first time
+      startPeriod = 180  # Increased for first-time initialization
     }
   }])
   
   tags = {
     Name = "sonarqube-task-def-devops-David-site-project"
   }
+
   
   depends_on = [
     aws_iam_role.ecs_task_execution_role,

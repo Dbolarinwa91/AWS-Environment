@@ -65,3 +65,29 @@ resource "aws_security_group" "lb_sg" {
   
   depends_on = [aws_vpc.main]
 }
+
+# Security group for EFS access
+resource "aws_security_group" "efs_sg" {
+  name        = "sonarqube-efs-sg"
+  description = "Allow EFS access from SonarQube ECS tasks"
+  vpc_id      = aws_vpc.main.id
+  
+  ingress {
+    description     = "NFS from ECS tasks"
+    from_port       = 2049
+    to_port         = 2049
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs_tasks.id]
+  }
+  
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  tags = {
+    Name = "sonarqube-efs-sg-devops-David-site-project"
+  }
+}

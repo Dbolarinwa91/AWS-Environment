@@ -120,3 +120,106 @@ resource "aws_ssm_parameter" "db_password" {
   value       = var.db_password
   key_id      = aws_kms_key.rds_encryption_key.key_id
 }
+
+# EFS File System for SonarQube persistent storage
+resource "aws_efs_file_system" "sonarqube" {
+  creation_token = "sonarqube-efs"
+  encrypted      = true
+  kms_key_id     = aws_kms_key.rds_encryption_key.arn
+  
+  performance_mode = "generalPurpose"
+  throughput_mode  = "bursting"
+  
+  lifecycle_policy {
+    transition_to_ia = "AFTER_30_DAYS"
+  }
+  
+  tags = {
+    Name = "sonarqube-efs-devops-David-site-project"
+  }
+}
+# EFS Mount Targets in each subnet/AZ
+resource "aws_efs_mount_target" "sonarqube_az1" {
+  file_system_id  = aws_efs_file_system.sonarqube.id
+  subnet_id       = aws_subnet.subnet_1.id
+  security_groups = [aws_security_group.efs_sg.id]
+}
+
+resource "aws_efs_mount_target" "sonarqube_az2" {
+  file_system_id  = aws_efs_file_system.sonarqube.id
+  subnet_id       = aws_subnet.subnet_2.id
+  security_groups = [aws_security_group.efs_sg.id]
+}
+
+resource "aws_efs_mount_target" "sonarqube_az3" {
+  file_system_id  = aws_efs_file_system.sonarqube.id
+  subnet_id       = aws_subnet.subnet_3.id
+  security_groups = [aws_security_group.efs_sg.id]
+}
+
+# EFS Access Points for different SonarQube directory purposes
+resource "aws_efs_access_point" "sonarqube_data" {
+  file_system_id = aws_efs_file_system.sonarqube.id
+  
+  posix_user {
+    gid = 1000
+    uid = 1000
+  }
+  
+  root_directory {
+    path = "/sonarqube-data"
+    creation_info {
+      owner_gid   = 1000
+      owner_uid   = 1000
+      permissions = "755"
+    }
+  }
+  
+  tags = {
+    Name = "sonarqube-data-ap-devops-David-site-project"
+  }
+}
+
+resource "aws_efs_access_point" "sonarqube_logs" {
+  file_system_id = aws_efs_file_system.sonarqube.id
+  
+  posix_user {
+    gid = 1000
+    uid = 1000
+  }
+  
+  root_directory {
+    path = "/sonarqube-logs"
+    creation_info {
+      owner_gid   = 1000
+      owner_uid   = 1000
+      permissions = "755"
+    }
+  }
+  
+  tags = {
+    Name = "sonarqube-logs-ap-devops-David-site-project"
+  }
+}
+
+resource "aws_efs_access_point" "sonarqube_extensions" {
+  file_system_id = aws_efs_file_system.sonarqube.id
+  
+  posix_user {
+    gid = 1000
+    uid = 1000
+  }
+  
+  root_directory {
+    path = "/sonarqube-extensions"
+    creation_info {
+      owner_gid   = 1000
+      owner_uid   = 1000
+      permissions = "755"
+    }
+  }
+  
+  tags = {
+    Name = "sonarqube-extensions-ap-devops-David-site-project"
+  }
+}
