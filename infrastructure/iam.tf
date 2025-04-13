@@ -147,7 +147,9 @@ resource "aws_iam_policy" "ecs_execution_ssm_access" {
           "ssm:GetParameter"
         ]
         Resource = [
-          "arn:aws:ssm:*:*:parameter/sonarqube/*"
+          "arn:aws:ssm:*:*:parameter/sonarqube/*",
+            "arn:aws:ssm:*:*:parameter/sonarqube/db/*"
+
         ]
       },
       {
