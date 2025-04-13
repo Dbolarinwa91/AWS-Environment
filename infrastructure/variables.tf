@@ -64,7 +64,7 @@ variable "db_username" {
 variable "db_password" {
   description = "Database master password"
   type        = string
-  default     = "sonarqube-password-change-me"  # Should be overridden in terraform.tfvars
+  default     = "sonarqube"  # Should be overridden in terraform.tfvars
   sensitive   = true
 }
 
