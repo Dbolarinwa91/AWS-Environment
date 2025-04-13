@@ -45,9 +45,7 @@
 #name: Destroy Terraform AWS VPC 3 Subnet 
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   id-token: write # Required for AWS OIDC connection
