@@ -2,7 +2,7 @@
 # security.tf - Security Groups
 # ----------------------------------------
 
-# Removed unused ECS Tasks Security Group
+
 
 # Security Group for SonarQube Tasks - without cyclic references
 resource "aws_security_group" "sonarqube_tasks" {
@@ -77,7 +77,7 @@ resource "aws_security_group" "efs_sg" {
     from_port       = 2049
     to_port         = 2049
     protocol        = "tcp"
-    security_groups = [aws_security_group.ecs_tasks.id]
+    security_groups = [aws_security_group.sonarqube_tasks.id]
   }
   
   egress {
