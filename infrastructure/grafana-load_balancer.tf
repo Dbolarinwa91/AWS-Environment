@@ -9,12 +9,12 @@ resource "aws_lb_target_group" "grafana_tg" {
   health_check {
     enabled             = true
     interval            = 15
-    path                = "/"
+    path                = "/api/health"  # Adjust this path based on your Grafana setup
     port                = "traffic-port"
     healthy_threshold   = 3
     unhealthy_threshold = 3
     timeout             = 5
-    matcher             = "200"
+    matcher             = "200,302,303,401"
   }
     # Allow time for connections to drain before deregistering
   deregistration_delay = 60
