@@ -49,12 +49,24 @@ resource "aws_security_group" "efs" {
   }
 }
 
-# Update the Grafana security group to include outbound NFS access
+# Add a rule to the existing EFS security group to allow traffic from Grafana tasks
+resource "aws_security_group_rule" "efs_from_grafana" {
+  type                     = "ingress"
+  from_port                = 2049
+  to_port                  = 2049
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.efs_sg.id
+  source_security_group_id = aws_security_group.grafana_tasks.id
+  description              = "Allow NFS traffic from Grafana tasks"
+}
+
+# Add a rule to the Grafana tasks security group to allow outbound traffic to EFS
 resource "aws_security_group_rule" "grafana_to_efs" {
   type                     = "egress"
   from_port                = 2049
   to_port                  = 2049
   protocol                 = "tcp"
   security_group_id        = aws_security_group.grafana_tasks.id
-  source_security_group_id = aws_security_group.efs.id
+  source_security_group_id = aws_security_group.efs_sg.id
+  description              = "Allow outbound NFS traffic to EFS"
 }
