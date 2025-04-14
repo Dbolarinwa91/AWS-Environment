@@ -44,7 +44,7 @@ resource "aws_ecs_task_definition" "grafana" {
       },
       {
         name  = "GF_SERVER_ROOT_URL"
-        value = "https://your-domain.com/grafana"
+        value = "http://david-app-lb-928717528.us-east-1.elb.amazonaws.com:9000/grafana"
       },
       {
         name  = "GF_PATHS_DATA"
