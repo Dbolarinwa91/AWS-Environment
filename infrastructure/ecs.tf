@@ -17,10 +17,6 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# Unused task definition removed
-
-# Main app service has been removed
-
 # Task Definition for SonarQube with EFS volume
 resource "aws_ecs_task_definition" "sonarqube" {
   family                   = "sonarqube-task"
