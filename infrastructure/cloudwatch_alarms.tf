@@ -93,7 +93,7 @@ resource "aws_cloudwatch_metric_alarm" "alb_high_5xx" {
 }
 
 
-resource "aws_cloudwatch_log_group" "sonarqube_logs" {
+resource "aws_cloudwatch_log_group" "c" {
   name              = "/ecs/sonarqube-container"
   retention_in_days = 30
   
@@ -101,3 +101,4 @@ resource "aws_cloudwatch_log_group" "sonarqube_logs" {
     Name = "sonarqube-logs-devops-David-site-project"
   }
 }
+
