@@ -14,20 +14,9 @@ jobs:
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
       
-      # Create a sonar-project.properties file
-      - name: Create SonarQube properties
-        run: |
-          echo "sonar.projectKey=your-project-key" > sonar-project.properties
-          echo "sonar.projectName=Your Project Name" >> sonar-project.properties
-          echo "sonar.projectVersion=1.0" >> sonar-project.properties
-          
-          # Source code location
-          echo "sonar.sources=." >> sonar-project.properties
-          
-          # Optional - Exclude paths if needed
-          echo "sonar.exclusions=**/node_modules/**,**/*.spec.ts" >> sonar-project.properties
       
-      # Run SonarQube scan with the properties file
+      
+      # Run SonarQube scan
       - uses: sonarsource/sonarqube-scan-action@master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
