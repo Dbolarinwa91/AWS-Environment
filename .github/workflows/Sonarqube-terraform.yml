@@ -28,11 +28,43 @@ jobs:
         id: set-status
         if: success()
         run: echo "status=success" >> $GITHUB_OUTPUT
+
+  check-quality-gate:
+    name: 🚦 Check SonarQube Quality Gate
+    runs-on: ubuntu-latest
+    needs: analyze
+    outputs:
+      quality_gate_status: ${{ steps.sonarqube-quality-gate-check.outputs.quality_gate_status }}
+    steps:
+      - name: Check SonarQube Quality Gate
+        id: sonarqube-quality-gate-check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        with:
+          scanMetadataReportFile: .scannerwork/report-task.txt
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        # This step will wait until the Quality Gate status is computed
+        timeout-minutes: 5
+      
+      - name: Set quality gate status
+        run: echo "quality_gate_status=${{ steps.sonarqube-quality-gate-check.outputs.quality_gate_status }}" >> $GITHUB_OUTPUT
+
+      - name: Log Quality Gate Result
+        run: |
+          if [[ "${{ steps.sonarqube-quality-gate-check.outputs.quality_gate_status }}" == "PASSED" ]]; then
+            echo "✅ Quality Gate passed!"
+          else
+            echo "❌ Quality Gate failed: ${{ steps.sonarqube-quality-gate-check.outputs.quality_gate_status }}"
+            # Uncomment the next line if you want the workflow to fail when quality gate fails
+            # exit 1
+          fi
       
   check-and-package:
     name: 📦 Check and Package Infrastructure
     runs-on: ubuntu-latest
-    needs: analyze
+    needs: [analyze, check-quality-gate]
+    if: needs.check-quality-gate.outputs.quality_gate_status == 'PASSED'
     outputs:
       infrastructure_exists: ${{ steps.check-folder.outputs.infrastructure_exists }}
       package_status: ${{ steps.set-status.outputs.status }}
@@ -106,7 +138,7 @@ jobs:
   summary:
     name: 📊 Workflow Summary
     runs-on: ubuntu-latest
-    needs: [analyze, check-and-package, deploy]
+    needs: [analyze, check-quality-gate, check-and-package, deploy]
     if: always()
     steps:
       - name: Provide Summary
@@ -120,6 +152,15 @@ jobs:
           else
             echo "## Analysis ❌" >> $GITHUB_STEP_SUMMARY
             echo "SonarQube scan failed or had issues" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Quality Gate Status
+          if [[ "${{ needs.check-quality-gate.outputs.quality_gate_status }}" == "PASSED" ]]; then
+            echo "## Quality Gate ✅" >> $GITHUB_STEP_SUMMARY
+            echo "SonarQube Quality Gate passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Quality Gate ❌" >> $GITHUB_STEP_SUMMARY
+            echo "SonarQube Quality Gate status: ${{ needs.check-quality-gate.outputs.quality_gate_status }}" >> $GITHUB_STEP_SUMMARY
           fi
           
           # Check and Package Status
