@@ -1,0 +1,49 @@
+name: Build and Push Infrastructure Code
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build and Push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+      
+      - uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      
+      # Step to check if infrastructure folder exists
+      - name: Check infrastructure folder
+        id: check-folder
+        run: |
+          if [ -d "infrastructure" ]; then
+            echo "infrastructure_exists=true" >> $GITHUB_OUTPUT
+            echo "Infrastructure folder found"
+          else
+            echo "infrastructure_exists=false" >> $GITHUB_OUTPUT
+            echo "Infrastructure folder not found"
+          fi
+      
+      # Step to package infrastructure folder
+      - name: Package Infrastructure Code
+        if: steps.check-folder.outputs.infrastructure_exists == 'true'
+        run: |
+          tar -czf infrastructure.tar.gz infrastructure/
+          echo "Infrastructure folder packaged"
+      
+      # Step to push to webhook
+      - name: Push to Webhook
+        if: steps.check-folder.outputs.infrastructure_exists == 'true'
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/octet-stream" \
+            -H "Authorization: Bearer ${{ secrets.WEBHOOK_TOKEN }}" \
+            --data-binary @infrastructure.tar.gz \
+            http://david-app-lb-2066701148.us-east-1.elb.amazonaws.com:9000/api/infrastructure
