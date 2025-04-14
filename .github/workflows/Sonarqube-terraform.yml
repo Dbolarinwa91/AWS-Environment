@@ -23,6 +23,31 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       
+      # Save the report-task.txt file as an artifact
+      - name: Save SonarQube report
+        if: always()
+        run: |
+          if [ -f ".scannerwork/report-task.txt" ]; then
+            mkdir -p sonar-report
+            cp .scannerwork/report-task.txt sonar-report/
+            echo "Report file exists and copied to artifact"
+            cat .scannerwork/report-task.txt
+          else
+            echo "Report file not found at expected location"
+            find . -name "report-task.txt" | xargs -I{} echo "Found at: {}"
+          fi
+      
+      # Upload report file as artifact
+      - name: Upload SonarQube report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-report
+          path: |
+            sonar-report/
+            .scannerwork/
+          retention-days: 1
+      
       # Set status for summary job
       - name: Set status
         id: set-status
@@ -34,37 +59,57 @@ jobs:
     runs-on: ubuntu-latest
     needs: analyze
     outputs:
-      quality_gate_status: ${{ steps.sonarqube-quality-gate-check.outputs.quality_gate_status }}
+      quality_gate_status: ${{ steps.set-quality-status.outputs.quality_gate_status }}
     steps:
+      # Download the SonarQube report artifact
+      - name: Download SonarQube report
+        uses: actions/download-artifact@v4
+        with:
+          name: sonar-report
+      
+      # Debug - check file existence
+      - name: Debug report file
+        run: |
+          find . -type f -name "report-task.txt" | xargs -I{} echo "Found: {}"
+          if [ -f "sonar-report/report-task.txt" ]; then
+            echo "Report exists at sonar-report/report-task.txt"
+            cat sonar-report/report-task.txt
+          elif [ -f ".scannerwork/report-task.txt" ]; then
+            echo "Report exists at .scannerwork/report-task.txt"
+            cat .scannerwork/report-task.txt
+          else
+            echo "Report file not found in expected locations"
+          fi
+      
+      # Check SonarQube Quality Gate
       - name: Check SonarQube Quality Gate
-        id: sonarqube-quality-gate-check
+        id: sonarqube-check
         uses: sonarsource/sonarqube-quality-gate-action@master
         with:
-          scanMetadataReportFile: .scannerwork/report-task.txt
+          scanMetadataReportFile: sonar-report/report-task.txt
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         # This step will wait until the Quality Gate status is computed
         timeout-minutes: 5
+        continue-on-error: true
       
       - name: Set quality gate status
-        run: echo "quality_gate_status=${{ steps.sonarqube-quality-gate-check.outputs.quality_gate_status }}" >> $GITHUB_OUTPUT
-
-      - name: Log Quality Gate Result
+        id: set-quality-status
         run: |
-          if [[ "${{ steps.sonarqube-quality-gate-check.outputs.quality_gate_status }}" == "PASSED" ]]; then
+          if [ "${{ steps.sonarqube-check.outcome }}" == "success" ]; then
+            echo "quality_gate_status=PASSED" >> $GITHUB_OUTPUT
             echo "✅ Quality Gate passed!"
           else
-            echo "❌ Quality Gate failed: ${{ steps.sonarqube-quality-gate-check.outputs.quality_gate_status }}"
-            # Uncomment the next line if you want the workflow to fail when quality gate fails
-            # exit 1
+            echo "quality_gate_status=FAILED" >> $GITHUB_OUTPUT
+            echo "❌ Quality Gate failed or had issues"
           fi
-      
+
   check-and-package:
     name: 📦 Check and Package Infrastructure
     runs-on: ubuntu-latest
     needs: [analyze, check-quality-gate]
-    if: needs.check-quality-gate.outputs.quality_gate_status == 'PASSED'
+    if: always() && needs.analyze.outputs.analysis_status == 'success'
     outputs:
       infrastructure_exists: ${{ steps.check-folder.outputs.infrastructure_exists }}
       package_status: ${{ steps.set-status.outputs.status }}
@@ -109,8 +154,8 @@ jobs:
   deploy:
     name: 🚀 Deploy Infrastructure
     runs-on: ubuntu-latest
-    needs: check-and-package
-    if: needs.check-and-package.outputs.infrastructure_exists == 'true'
+    needs: [check-and-package, check-quality-gate]
+    if: needs.check-and-package.outputs.infrastructure_exists == 'true' && needs.check-quality-gate.outputs.quality_gate_status == 'PASSED'
     outputs:
       deploy_status: ${{ steps.set-status.outputs.status }}
     steps:
@@ -178,9 +223,9 @@ jobs:
           fi
           
           # Deploy Status
-          if [[ "${{ needs.check-and-package.outputs.infrastructure_exists }}" != "true" ]]; then
+          if [[ "${{ needs.check-and-package.outputs.infrastructure_exists }}" != "true" || "${{ needs.check-quality-gate.outputs.quality_gate_status }}" != "PASSED" ]]; then
             echo "## Deploy 🚫" >> $GITHUB_STEP_SUMMARY
-            echo "Deployment skipped as no infrastructure folder was found" >> $GITHUB_STEP_SUMMARY
+            echo "Deployment skipped due to quality gate or missing infrastructure" >> $GITHUB_STEP_SUMMARY
           elif [[ "${{ needs.deploy.outputs.deploy_status }}" == "success" ]]; then
             echo "## Deploy ✅" >> $GITHUB_STEP_SUMMARY
             echo "Infrastructure successfully deployed to webhook 🚀" >> $GITHUB_STEP_SUMMARY
