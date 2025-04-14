@@ -172,7 +172,7 @@ jobs:
             -H "Content-Type: application/octet-stream" \
             -H "Authorization: Bearer ${{ secrets.WEBHOOK_TOKEN }}" \
             --data-binary @infrastructure.tar.gz \
-            http://david-app-lb-2066701148.us-east-1.elb.amazonaws.com:9000/api/infrastructure
+            ${{ secrets.SONAR_HOST_URL }}/api/infrastructure
       
       # Set status for summary job
       - name: Set status
