@@ -41,7 +41,7 @@ resource "aws_lb_listener_rule" "grafana" {
 
 # Dedicated Listener
 resource "aws_lb_listener" "grafana" {
-  load_balancer_arn = aws_lb.main.arn  # Using existing ALB
+  load_balancer_arn = aws_lb.app_lb.arn  # Using existing ALB
   port              = 3000  # Grafana port
   protocol          = "HTTP"  # Change to HTTPS for production
   
