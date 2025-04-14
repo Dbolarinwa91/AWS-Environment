@@ -12,7 +12,7 @@ jobs:
     outputs:
       analysis_status: ${{ steps.set-status.outputs.status }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
       
@@ -37,7 +37,7 @@ jobs:
       infrastructure_exists: ${{ steps.check-folder.outputs.infrastructure_exists }}
       package_status: ${{ steps.set-status.outputs.status }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       
       # Check if infrastructure folder exists
       - name: Check infrastructure folder
@@ -62,7 +62,7 @@ jobs:
       # Upload artifact for next job
       - name: Upload infrastructure package
         if: steps.check-folder.outputs.infrastructure_exists == 'true'
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: infrastructure-package
           path: infrastructure.tar.gz
@@ -84,7 +84,7 @@ jobs:
     steps:
       # Download the infrastructure package
       - name: Download infrastructure package
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: infrastructure-package
       
