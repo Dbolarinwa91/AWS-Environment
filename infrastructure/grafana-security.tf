@@ -22,3 +22,39 @@ resource "aws_security_group" "grafana_tasks" {
     Name = "grafana-tasks-sg-devops-David-site-project"
   }
 }
+
+# Security Group for EFS
+resource "aws_security_group" "efs" {
+  name        = "efs-security-group"
+  description = "Allow NFS traffic from Grafana tasks"
+  vpc_id      = aws_vpc.main.id
+
+  # Allow inbound NFS traffic from Grafana tasks
+  ingress {
+    protocol        = "tcp"
+    from_port       = 2049
+    to_port         = 2049
+    security_groups = [aws_security_group.grafana_tasks.id]
+  }
+
+  egress {
+    protocol    = "-1"
+    from_port   = 0
+    to_port     = 0
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "efs-sg-devops-David-site-project"
+  }
+}
+
+# Update the Grafana security group to include outbound NFS access
+resource "aws_security_group_rule" "grafana_to_efs" {
+  type                     = "egress"
+  from_port                = 2049
+  to_port                  = 2049
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.grafana_tasks.id
+  source_security_group_id = aws_security_group.efs.id
+}
