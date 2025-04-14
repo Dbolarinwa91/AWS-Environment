@@ -2,7 +2,7 @@ name: Terraform-Apply-AWS-VPC-3-Subnets
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:  # Allow manual triggering
 
 permissions:
