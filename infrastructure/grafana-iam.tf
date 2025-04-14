@@ -9,11 +9,10 @@ resource "aws_ssm_parameter" "grafana_admin_password" {
     Name = "grafana-admin-password-devops-David-site-project"
   }
 }
-# Add SSM Parameter access to the ECS Task Execution Role
-# Create a policy for Grafana SSM Parameter access
-resource "aws_iam_policy" "ecs_grafana_ssm_access" {
-  name        = "ecs-grafana-ssm-access-policy"
-  description = "Allow ECS task execution role to access Grafana SSM parameters"
+# Update policy for EFS access to include the specific access point
+resource "aws_iam_policy" "grafana_efs_access" {
+  name        = "grafana-efs-access-policy"
+  description = "Allow Grafana tasks to access specific EFS access point"
   
   policy = jsonencode({
     Version = "2012-10-17"
@@ -21,19 +20,24 @@ resource "aws_iam_policy" "ecs_grafana_ssm_access" {
       {
         Effect = "Allow"
         Action = [
-          "ssm:GetParameters",
-          "ssm:GetParameter"
+          "elasticfilesystem:ClientMount",
+          "elasticfilesystem:ClientWrite",
+          "elasticfilesystem:ClientRootAccess",
+          "elasticfilesystem:DescribeMountTargets"
         ]
-        Resource = [
-          "arn:aws:ssm:*:*:parameter/grafana/*"
-        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "elasticfilesystem:AccessPointArn": "arn:aws:elasticfilesystem:${var.aws_region}:${data.aws_caller_identity.current.account_id}:access-point/fsap-0cb8a17063986825a"
+          }
+        }
       }
     ]
   })
 }
 
-# Attach the Grafana SSM access policy to the task execution role
-resource "aws_iam_role_policy_attachment" "ecs_task_execution_grafana_ssm_policy" {
-  role       = aws_iam_role.ecs_task_execution_role.name
-  policy_arn = aws_iam_policy.ecs_grafana_ssm_access.arn
+# Attach the Grafana EFS access policy to the task role
+resource "aws_iam_role_policy_attachment" "grafana_efs_access_attachment" {
+  role       = aws_iam_role.ecs_task_role.name
+  policy_arn = aws_iam_policy.grafana_efs_access.arn
 }
