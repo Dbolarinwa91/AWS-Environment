@@ -2,8 +2,14 @@ name: Terraform-Apply-AWS-VPC-3-Subnets
 on:
   push:
     branches:
-      - master
+      - main
   workflow_dispatch:  # Allow manual triggering
+  workflow_run:
+    workflows: ["🔄 Build, Analyze and Push Infrastructure Code"]  # Name of the workflow that should trigger this one
+    types:
+      - completed
+    branches:
+      - main  # Only trigger on the master branch runs
 
 permissions:
   id-token: write  # Required for AWS OIDC connection
@@ -15,14 +21,20 @@ env:
   TERRAFORM_VERSION: ${{ secrets.TERRAFORM_VERSION }}
   TF_WORKING_DIR: infrastructure
 
+
+
 jobs:
   # PHASE 1: PREPARE
   prepare:
     name: '🔍 Prepare Environment'
     runs-on: ubuntu-latest
+    # Only run if the triggering workflow was successful or if triggered by push/workflow_dispatch
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || 
+      github.event_name == 'push' || 
+      github.event_name == 'workflow_dispatch'
     outputs:
-      environment_ready: ${{ steps.env_check.outputs.environment_ready }}
-    
+      environment_ready: ${{ steps.env_check.outputs.environment_ready }}  
     steps:
       - name: 🔍 Checkout repository
         uses: actions/checkout@v4
