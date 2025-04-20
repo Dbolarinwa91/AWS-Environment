@@ -3,10 +3,12 @@ resource "aws_ecs_task_definition" "grafana" {
   family                   = "grafana-task"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "512"
-  memory                   = "1024"
+  cpu                      = "1000"
+  memory                   = "2048"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
+  # this is the subnet id for the grafana task definition
+  
   
   # EFS volume configuration
   volume {
@@ -43,8 +45,12 @@ resource "aws_ecs_task_definition" "grafana" {
         value = "admin"
       },
       {
+        name  = "GF_SERVER_SERVE_FROM_SUB_PATH"
+        value = "true"
+      },
+      {
         name  = "GF_SERVER_ROOT_URL"
-        value = "http://david-app-lb-928717528.us-east-1.elb.amazonaws.com:3000/grafana"
+        value = "http://david-app-lb-928717528.us-east-1.elb.amazonaws.com/grafana"
       },
       {
         name  = "GF_PATHS_DATA"
@@ -53,6 +59,14 @@ resource "aws_ecs_task_definition" "grafana" {
       {
         name  = "GF_PATHS_LOGS"
         value = "/var/log/grafana"
+      },
+      {
+        name  = "GF_DASHBOARDS_MIN_REFRESH_INTERVAL"
+        value = "10s"  // Prevent too frequent refreshes
+      },
+      {
+        name  = "GF_USERS_DEFAULT_THEME"
+        value = "dark"  // Options: dark, light
       }
     ],
     
@@ -81,7 +95,7 @@ resource "aws_ecs_task_definition" "grafana" {
     },
     
     healthCheck = {
-      command     = ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      command     = ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/grafana/api/health || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3
@@ -105,7 +119,7 @@ resource "aws_ecs_service" "grafana" {
   name            = "grafana-service"
   cluster         = aws_ecs_cluster.main.id  # Reusing existing cluster
   task_definition = aws_ecs_task_definition.grafana.arn
-  desired_count   = 1  # Set to higher value for HA
+  desired_count   = var.grafana_instance_count  # Set to higher value for HA
   launch_type     = "FARGATE"
   
   platform_version = "1.4.0"

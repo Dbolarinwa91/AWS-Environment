@@ -72,7 +72,7 @@ variable "db_password" {
 variable "sonarqube_instance_count" {
   description = "Number of SonarQube instances to run"
   type        = number
-  default     = 2  # Reduced from 3 to optimize costs while maintaining redundancy
+  default     = 3  # Reduced from 3 to optimize costs while maintaining redundancy
 }
 
 variable "sonarqube_health_check_grace_period" {
