@@ -1,4 +1,4 @@
-# Security Group
+# Security Group for Grafana Tasks
 resource "aws_security_group" "grafana_tasks" {
   name        = "grafana-tasks-security-group"
   description = "Allow inbound traffic to Grafana"
@@ -23,8 +23,8 @@ resource "aws_security_group" "grafana_tasks" {
   }
 }
 
-# Security Group for EFS
-resource "aws_security_group" "efs" {
+# CHANGED: Renamed from "efs" to "efs_sg" to match references in security group rules
+resource "aws_security_group" "efs_sg" {
   name        = "efs-security-group"
   description = "Allow NFS traffic from Grafana tasks"
   vpc_id      = aws_vpc.main.id
@@ -35,6 +35,8 @@ resource "aws_security_group" "efs" {
     from_port       = 2049
     to_port         = 2049
     security_groups = [aws_security_group.grafana_tasks.id]
+    # ADDED: Description for clarity
+    description     = "Allow NFS traffic from Grafana tasks"
   }
 
   egress {
@@ -45,28 +47,31 @@ resource "aws_security_group" "efs" {
   }
 
   tags = {
+    # CHANGED: Updated tag to reflect the resource name
     Name = "efs-sg-devops-David-site-project"
   }
 }
 
-# Add a rule to the existing EFS security group to allow traffic from Grafana tasks
-resource "aws_security_group_rule" "efs_from_grafana" {
-  type                     = "ingress"
-  from_port                = 2049
-  to_port                  = 2049
-  protocol                 = "tcp"
-  security_group_id        = aws_security_group.efs_sg.id
-  source_security_group_id = aws_security_group.grafana_tasks.id
-  description              = "Allow NFS traffic from Grafana tasks"
-}
+# COMMENTED OUT: Removed redundant rule that conflicts with the inline ingress rule in efs_sg
+# This rule is causing conflicts because it's trying to add the same rule that already exists
+# resource "aws_security_group_rule" "efs_from_grafana" {
+#   type                     = "ingress"
+#   from_port                = 2049
+#   to_port                  = 2049
+#   protocol                 = "tcp"
+#   security_group_id        = aws_security_group.efs_sg.id
+#   source_security_group_id = aws_security_group.grafana_tasks.id
+#   description              = "Allow NFS traffic from Grafana tasks"
+# }
 
-# Add a rule to the Grafana tasks security group to allow outbound traffic to EFS
-resource "aws_security_group_rule" "grafana_to_efs" {
-  type                     = "egress"
-  from_port                = 2049
-  to_port                  = 2049
-  protocol                 = "tcp"
-  security_group_id        = aws_security_group.grafana_tasks.id
-  source_security_group_id = aws_security_group.efs_sg.id
-  description              = "Allow outbound NFS traffic to EFS"
-}
+# COMMENTED OUT: Removed redundant rule that conflicts with the all-traffic egress rule in grafana_tasks
+# The existing "-1" protocol egress rule already allows all outbound traffic including to EFS
+# resource "aws_security_group_rule" "grafana_to_efs" {
+#   type                     = "egress"
+#   from_port                = 2049
+#   to_port                  = 2049
+#   protocol                 = "tcp"
+#   security_group_id        = aws_security_group.grafana_tasks.id
+#   source_security_group_id = aws_security_group.efs_sg.id
+#   description              = "Allow outbound NFS traffic to EFS"
+# }
