@@ -41,3 +41,31 @@ resource "aws_iam_role_policy_attachment" "grafana_efs_access_attachment" {
   role       = aws_iam_role.ecs_task_role.name
   policy_arn = aws_iam_policy.grafana_efs_access.arn
 }
+
+# Policy to allow ECS Task Execution Role to access SSM parameters
+resource "aws_iam_policy" "ssm_parameter_access" {
+  name        = "ssm-parameter-access-policy"
+  description = "Allow ECS task execution role to access SSM parameters for Grafana"
+  
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameters",
+          "ssm:GetParameter"
+        ]
+        Resource = [
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/grafana/admin-password"
+        ]
+      }
+    ]
+  })
+}
+
+# Attach the SSM parameter access policy to the task execution role
+resource "aws_iam_role_policy_attachment" "ssm_parameter_access_attachment" {
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = aws_iam_policy.ssm_parameter_access.arn
+}
