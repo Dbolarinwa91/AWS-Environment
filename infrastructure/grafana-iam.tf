@@ -25,12 +25,8 @@ resource "aws_iam_policy" "grafana_efs_access" {
           "elasticfilesystem:ClientRootAccess",
           "elasticfilesystem:DescribeMountTargets"
         ]
-        Resource = "*"
-        Condition = {
-          StringEquals = {
-            "elasticfilesystem:AccessPointArn": "arn:aws:elasticfilesystem:${var.aws_region}:${data.aws_caller_identity.current.account_id}:access-point/fsap-0cb8a17063986825a"
-          }
-        }
+        Resource = "arn:aws:elasticfilesystem:us-east-1:061652678349:file-system/fs-01abcf313c874d1c5"
+        
       }
     ]
   })
