@@ -10,7 +10,7 @@ variable "grafana_admin_password" {
 variable "grafana_instance_count" {
   description = "Number of Grafana instances to run"
   type        = number
-  default     = 3
+  default     = 0
 }
 
 variable "grafana_health_check_grace_period" {
