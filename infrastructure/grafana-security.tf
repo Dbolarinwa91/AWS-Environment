@@ -22,3 +22,24 @@ resource "aws_security_group" "grafana_tasks" {
     Name = "grafana-tasks-sg-devops-David-site-project"
   }
 }
+
+# Add a specific egress rule for EFS
+resource "aws_security_group_rule" "grafana_to_efs" {
+  type                     = "egress"
+  from_port                = 2049
+  to_port                  = 2049
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.grafana_tasks.id
+  source_security_group_id = aws_security_group.efs_sg.id  # The security group for your EFS mount targets
+}
+
+# Security group rule to allow Grafana tasks to connect to EFS
+resource "aws_security_group_rule" "efs_from_grafana" {
+  type                     = "ingress"
+  from_port                = 2049
+  to_port                  = 2049
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.efs_sg.id
+  source_security_group_id = aws_security_group.grafana_tasks.id
+  description              = "Allow NFS access from Grafana tasks"
+}
