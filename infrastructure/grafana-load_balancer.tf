@@ -30,6 +30,11 @@ resource "aws_lb_target_group" "grafana_tg" {
   tags = {
     Name = "grafana-target-group-devops-David-site-project"
   }
+  depends_on = [aws_vpc.main]
+  
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 
@@ -37,40 +42,24 @@ resource "aws_lb_target_group" "grafana_tg" {
 # Dedicated Listener
 resource "aws_lb_listener" "grafana" {
   load_balancer_arn = aws_lb.app_lb.arn  # Using existing ALB
-  port              = 80  # Grafana port
+  port              = 3000  # Grafana port
   protocol          = "HTTP"  # Change to HTTPS for production
   
   default_action {
-    type = "fixed-response"
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "Service not found"
-      status_code  = "404"
-    }
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.grafana_tg.arn
   }
-  
+  depends_on = [
+    aws_lb.app_lb,
+    aws_lb_target_group.grafana_tg
+  ]
+  lifecycle {
+    create_before_destroy = true
+  }
   tags = {
     Name = "grafana-listener-devops-David-site-project"
   }
 }
 
+
 # Grafana listener rule
-resource "aws_lb_listener_rule" "grafana" {
-  listener_arn = aws_lb_listener.grafana.arn
-  priority     = 100
-  
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.grafana_tg.arn
-  }
-  
-  condition {
-    path_pattern {
-      values = ["/grafana*"]
-    }
-  }
-  
-  tags = {
-    Name = "grafana-rule-devops-David-site-project"
-  }
-}

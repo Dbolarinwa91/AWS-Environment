@@ -124,7 +124,7 @@ resource "aws_ecs_service" "grafana" {
   
   platform_version = "1.4.0"
   
-  health_check_grace_period_seconds = 60
+  health_check_grace_period_seconds = var.grafana_health_check_grace_period
   
   deployment_controller {
     type = "ECS"
@@ -159,6 +159,9 @@ resource "aws_ecs_service" "grafana" {
     aws_ecs_cluster.main,
     aws_ecs_task_definition.grafana,
     aws_security_group.grafana_tasks,
+    aws_lb_target_group.grafana_tg,aws_subnet.subnet_1,
+    aws_subnet.subnet_2,
+    aws_subnet.subnet_3,
     aws_lb_target_group.grafana_tg
   ]
   

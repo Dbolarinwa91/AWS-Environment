@@ -12,3 +12,9 @@ variable "grafana_instance_count" {
   type        = number
   default     = 3
 }
+
+variable "grafana_health_check_grace_period" {
+  description = "The health check grace period in seconds"
+  type        = number
+  default     = 300
+}
